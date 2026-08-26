@@ -48,7 +48,7 @@ function HomePage() {
 
   const TABS: { id: Tab; label: string; icon: any; adminOnly?: boolean; pharmacistOnly?: boolean }[] = [
     { id: "analytics", label: "Dashboard & Analytics", icon: BarChart3, adminOnly: true },
-    { id: "finance", label: "Finance & P&L", icon: Wallet, adminOnly: true },
+    { id: "finance", label: "Finance & Expenses", icon: Wallet },
     { id: "dispensing", label: "Dispensing", icon: PillBottle, pharmacistOnly: true },
     { id: "returns", label: "Returns & Refunds", icon: Undo2, pharmacistOnly: true },
     { id: "inventory", label: "Inventory", icon: Boxes },
@@ -100,7 +100,7 @@ function HomePage() {
         {tab === "inventory" && <InventoryTab />}
         {tab === "payments" && <PaymentsTab />}
         {tab === "analytics" && <AnalyticsTab />}
-        {tab === "finance" && role === "admin" && <FinanceTab />}
+        {tab === "finance" && <FinanceTab />}
         {tab === "users" && role === "admin" && <UserManagementTab />}
       </main>
     </div>

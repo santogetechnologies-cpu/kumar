@@ -46,12 +46,23 @@ function fmt(d: Date) {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" });
 }
 
-const EXPENSE_CATS = ["Salary", "Rent", "Electricity", "Equipment", "Stationery", "Maintenance", "Transport", "Miscellaneous"];
+/* Pharmacy-only internal use expense categories */
+const EXPENSE_CATS = [
+  "Dressing Materials",
+  "Sanitization Supplies",
+  "Internal Medicine Use",
+  "Medical Waste Disposal",
+  "PPE & Safety",
+  "Pharmacy Consumables",
+  "Sterile Supplies",
+  "Miscellaneous Pharmacy",
+];
 
 /* ── Main Component ── */
 export function FinanceTab() {
   const { bills, purchases, expenses, addExpense, deleteExpense } = usePharmacy();
-  const { user } = useAuth();
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
 
   const [range, setRange] = useState<RangeKey>("month");
   const [customStart, setCustomStart] = useState("");
@@ -73,11 +84,17 @@ export function FinanceTab() {
       return d >= from && d <= to && b.status !== "refunded";
     }), [bills, from, to]);
 
+  /* All purchases (both received and pending/initial) in the period */
   const filteredPurchases = useMemo(() =>
     purchases.filter(p => {
       const d = new Date(p.createdAt);
-      return d >= from && d <= to && p.status === "received";
+      return d >= from && d <= to;
     }), [purchases, from, to]);
+
+  /* Only received purchases count as a real expense in P&L */
+  const filteredReceivedPurchases = useMemo(() =>
+    filteredPurchases.filter(p => p.status === "received"),
+  [filteredPurchases]);
 
   const filteredExpenses = useMemo(() =>
     expenses.filter(e => {
@@ -87,7 +104,7 @@ export function FinanceTab() {
 
   /* ── P&L Calculations ── */
   const revenue = filteredBills.reduce((s, b) => s + b.total, 0);
-  const purchaseCost = filteredPurchases.reduce((s, p) => s + p.cost, 0);
+  const purchaseCost = filteredReceivedPurchases.reduce((s, p) => s + p.cost, 0);
   const otherExpenses = filteredExpenses.reduce((s, e) => s + e.amount, 0);
   const totalExpenses = purchaseCost + otherExpenses;
   const grossProfit = revenue - purchaseCost;
@@ -97,7 +114,7 @@ export function FinanceTab() {
   const totalTx = filteredBills.length;
   const avgBill = totalTx > 0 ? revenue / totalTx : 0;
 
-  /* ── Daily chart data (last 30 days max) ── */
+  /* ── Daily chart data ── */
   const dailyData = useMemo(() => {
     const days: Record<string, { date: string; revenue: number; expenses: number; profit: number }> = {};
     for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
@@ -108,7 +125,7 @@ export function FinanceTab() {
       const k = new Date(b.createdAt).toISOString().slice(0, 10);
       if (days[k]) days[k].revenue += b.total;
     });
-    filteredPurchases.forEach(p => {
+    filteredReceivedPurchases.forEach(p => {
       const k = new Date(p.createdAt).toISOString().slice(0, 10);
       if (days[k]) days[k].expenses += p.cost;
     });
@@ -122,15 +139,15 @@ export function FinanceTab() {
       revenue: +d.revenue.toFixed(2),
       expenses: +d.expenses.toFixed(2),
     }));
-  }, [filteredBills, filteredPurchases, filteredExpenses, from, to]);
+  }, [filteredBills, filteredReceivedPurchases, filteredExpenses, from, to]);
 
   /* ── Expense by category ── */
   const expByCategory = useMemo(() => {
     const map: Record<string, number> = {};
     filteredExpenses.forEach(e => { map[e.category] = (map[e.category] || 0) + e.amount; });
-    filteredPurchases.forEach(p => { map["Purchases"] = (map["Purchases"] || 0) + p.cost; });
+    filteredReceivedPurchases.forEach(p => { map["Purchases (Received)"] = (map["Purchases (Received)"] || 0) + p.cost; });
     return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value: +value.toFixed(2) }));
-  }, [filteredExpenses, filteredPurchases]);
+  }, [filteredExpenses, filteredReceivedPurchases]);
 
   /* ── Add Expense ── */
   const handleAddExpense = async () => {
@@ -167,184 +184,158 @@ export function FinanceTab() {
 
   return (
     <div className="space-y-6">
-      {/* ── Header & Date Filters ── */}
+      {/* ── Header ── */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Wallet className="h-6 w-6 text-primary" /> Finance & P&L Report
+            <Wallet className="h-6 w-6 text-primary" /> {isAdmin ? "Finance & P&L Report" : "Pharmacy Expense Entry"}
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {fmt(from)} — {fmt(to)}
+            {isAdmin ? `${fmt(from)} — ${fmt(to)}` : "Record pharmacy internal use expenses"}
           </p>
         </div>
         <Button onClick={() => setShowExpenseDialog(true)} className="gap-2">
-          <Plus className="h-4 w-4" /> Add Expense
+          <Plus className="h-4 w-4" /> Record Expense
         </Button>
       </div>
 
-      {/* Date range pills */}
-      <div className="flex flex-wrap gap-2">
-        {RANGES.map(r => (
-          <button
-            key={r.key}
-            onClick={() => setRange(r.key)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium border transition ${range === r.key ? "bg-primary text-primary-foreground border-primary shadow-sm" : "hover:bg-accent border-transparent"}`}
-          >
-            {r.label}
-          </button>
-        ))}
-        {range === "custom" && (
-          <div className="flex items-center gap-2 ml-1 flex-wrap">
-            <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="h-8 w-36 text-sm" />
-            <span className="text-muted-foreground text-sm">to</span>
-            <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="h-8 w-36 text-sm" />
-          </div>
-        )}
-      </div>
-
-      {/* ── KPI Cards ── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <PLCard
-          label="Total Revenue"
-          value={`₹${revenue.toFixed(2)}`}
-          sub={`${totalTx} transactions · Avg ₹${avgBill.toFixed(0)}`}
-          icon={TrendingUp}
-          color="blue"
-          positive
-        />
-        <PLCard
-          label="Total Expenses"
-          value={`₹${totalExpenses.toFixed(2)}`}
-          sub={`Purchases ₹${purchaseCost.toFixed(0)} + Other ₹${otherExpenses.toFixed(0)}`}
-          icon={ShoppingCart}
-          color="red"
-          positive={false}
-        />
-        <PLCard
-          label="Gross Profit"
-          value={`₹${grossProfit.toFixed(2)}`}
-          sub={`Margin: ${grossMargin.toFixed(1)}%`}
-          icon={grossProfit >= 0 ? ArrowUpRight : ArrowDownRight}
-          color={grossProfit >= 0 ? "green" : "red"}
-          positive={grossProfit >= 0}
-        />
-        <PLCard
-          label="Net Profit"
-          value={`₹${netProfit.toFixed(2)}`}
-          sub={`Net margin: ${netMargin.toFixed(1)}%`}
-          icon={netProfit >= 0 ? DollarSign : TrendingDown}
-          color={netProfit >= 0 ? "green" : "red"}
-          positive={netProfit >= 0}
-        />
-      </div>
-
-      {/* ── P&L Summary Table ── */}
-      <Card className="p-5">
-        <h3 className="font-semibold mb-4 flex items-center gap-2"><BarChart3 className="h-4 w-4 text-muted-foreground" /> Profit & Loss Summary</h3>
-        <div className="space-y-2">
-          {[
-            { label: "Revenue from Bills", val: revenue, indent: 0, bold: false, color: "text-green-600" },
-            { label: "Less: Cost of Purchases (Received)", val: -purchaseCost, indent: 1, bold: false, color: "text-red-500" },
-            { label: "= Gross Profit", val: grossProfit, indent: 0, bold: true, color: grossProfit >= 0 ? "text-green-600" : "text-red-500" },
-            { label: "Less: Other Operating Expenses", val: -otherExpenses, indent: 1, bold: false, color: "text-red-500" },
-            { label: "= Net Profit / (Loss)", val: netProfit, indent: 0, bold: true, color: netProfit >= 0 ? "text-green-700" : "text-red-600" },
-          ].map(row => (
-            <div key={row.label} className={`flex items-center justify-between py-2 border-b last:border-0 last:pt-3 ${row.bold ? "border-t-2 font-bold text-base" : "text-sm"} ${row.indent ? "pl-6" : ""}`}>
-              <span className={row.bold ? "" : "text-muted-foreground"}>{row.label}</span>
-              <span className={row.color + (row.bold ? " text-lg" : "")}>
-                {row.val < 0 ? "-" : ""}₹{Math.abs(row.val).toFixed(2)}
-              </span>
-            </div>
+      {/* Date range pills — admin only */}
+      {isAdmin && (
+        <div className="flex flex-wrap gap-2">
+          {RANGES.map(r => (
+            <button
+              key={r.key}
+              onClick={() => setRange(r.key)}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium border transition ${range === r.key ? "bg-primary text-primary-foreground border-primary shadow-sm" : "hover:bg-accent border-transparent"}`}
+            >
+              {r.label}
+            </button>
           ))}
+          {range === "custom" && (
+            <div className="flex items-center gap-2 ml-1 flex-wrap">
+              <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="h-8 w-36 text-sm" />
+              <span className="text-muted-foreground text-sm">to</span>
+              <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="h-8 w-36 text-sm" />
+            </div>
+          )}
         </div>
-      </Card>
+      )}
 
-      {/* ── Charts ── */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-5">
-          <h3 className="font-semibold mb-3 flex items-center gap-2"><CalendarDays className="h-4 w-4 text-muted-foreground" /> Daily Revenue vs Expenses</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dailyData} margin={{ left: -10 }}>
-                <defs>
-                  <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="exp" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#dc2626" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#dc2626" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={55} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip formatter={(v: any) => `₹${v}`} />
-                <Legend />
-                <Area type="monotone" dataKey="revenue" stroke="#2563eb" fill="url(#rev)" strokeWidth={2} name="Revenue" dot={false} />
-                <Area type="monotone" dataKey="expenses" stroke="#dc2626" fill="url(#exp)" strokeWidth={2} name="Expenses" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+      {/* ── KPI Cards — admin only ── */}
+      {isAdmin && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <PLCard label="Total Revenue" value={`₹${revenue.toFixed(2)}`} sub={`${totalTx} transactions · Avg ₹${avgBill.toFixed(0)}`} icon={TrendingUp} color="blue" positive />
+          <PLCard label="Total Expenses" value={`₹${totalExpenses.toFixed(2)}`} sub={`Purchases ₹${purchaseCost.toFixed(0)} + Other ₹${otherExpenses.toFixed(0)}`} icon={ShoppingCart} color="red" positive={false} />
+          <PLCard label="Gross Profit" value={`₹${grossProfit.toFixed(2)}`} sub={`Margin: ${grossMargin.toFixed(1)}%`} icon={grossProfit >= 0 ? ArrowUpRight : ArrowDownRight} color={grossProfit >= 0 ? "green" : "red"} positive={grossProfit >= 0} />
+          <PLCard label="Net Profit" value={`₹${netProfit.toFixed(2)}`} sub={`Net margin: ${netMargin.toFixed(1)}%`} icon={netProfit >= 0 ? DollarSign : TrendingDown} color={netProfit >= 0 ? "green" : "red"} positive={netProfit >= 0} />
+        </div>
+      )}
 
-        <Card className="p-5">
-          <h3 className="font-semibold mb-3">Daily Net Profit / Loss</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={dailyData} margin={{ left: -10 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={55} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip formatter={(v: any) => `₹${v}`} />
-                <Bar
-                  dataKey="profit"
-                  name="Net Profit"
-                  radius={[4, 4, 0, 0]}
-                  fill="#16a34a"
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-
-        <Card className="p-5">
-          <h3 className="font-semibold mb-3">Expenses by Category</h3>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={expByCategory} layout="vertical" margin={{ left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `₹${v}`} />
-                <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={90} />
-                <Tooltip formatter={(v: any) => `₹${v}`} />
-                <Bar dataKey="value" fill="#7c3aed" radius={[0, 4, 4, 0]} name="Amount" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-
-        <Card className="p-5">
-          <h3 className="font-semibold mb-3">Key Metrics</h3>
-          <div className="space-y-3">
-            {[
-              { label: "Gross Margin", value: `${grossMargin.toFixed(1)}%`, bar: Math.min(100, grossMargin), color: "bg-blue-500" },
-              { label: "Net Margin", value: `${netMargin.toFixed(1)}%`, bar: Math.min(100, Math.max(0, netMargin)), color: "bg-green-500" },
-              { label: "Expense Ratio", value: `${revenue > 0 ? ((totalExpenses / revenue) * 100).toFixed(1) : 0}%`, bar: Math.min(100, revenue > 0 ? (totalExpenses / revenue) * 100 : 0), color: "bg-red-500" },
-              { label: "Purchase/Revenue", value: `${revenue > 0 ? ((purchaseCost / revenue) * 100).toFixed(1) : 0}%`, bar: Math.min(100, revenue > 0 ? (purchaseCost / revenue) * 100 : 0), color: "bg-orange-500" },
-            ].map(m => (
-              <div key={m.label}>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">{m.label}</span>
-                  <span className="font-semibold">{m.value}</span>
+      {/* ── P&L + Charts — admin only ── */}
+      {isAdmin && (
+        <>
+          <Card className="p-5">
+            <h3 className="font-semibold mb-4 flex items-center gap-2"><BarChart3 className="h-4 w-4 text-muted-foreground" /> Profit & Loss Summary</h3>
+            <div className="space-y-2">
+              {[
+                { label: "Revenue from Bills", val: revenue, indent: 0, bold: false, color: "text-green-600" },
+                { label: "Less: Cost of Purchases (Received)", val: -purchaseCost, indent: 1, bold: false, color: "text-red-500" },
+                { label: "= Gross Profit", val: grossProfit, indent: 0, bold: true, color: grossProfit >= 0 ? "text-green-600" : "text-red-500" },
+                { label: "Less: Pharmacy Internal Expenses", val: -otherExpenses, indent: 1, bold: false, color: "text-red-500" },
+                { label: "= Net Profit / (Loss)", val: netProfit, indent: 0, bold: true, color: netProfit >= 0 ? "text-green-700" : "text-red-600" },
+              ].map(row => (
+                <div key={row.label} className={`flex items-center justify-between py-2 border-b last:border-0 last:pt-3 ${row.bold ? "border-t-2 font-bold text-base" : "text-sm"} ${row.indent ? "pl-6" : ""}`}>
+                  <span className={row.bold ? "" : "text-muted-foreground"}>{row.label}</span>
+                  <span className={row.color + (row.bold ? " text-lg" : "")}>
+                    {row.val < 0 ? "-" : ""}₹{Math.abs(row.val).toFixed(2)}
+                  </span>
                 </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${m.color} transition-all`} style={{ width: `${m.bar}%` }} />
-                </div>
+              ))}
+            </div>
+          </Card>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="p-5">
+              <h3 className="font-semibold mb-3 flex items-center gap-2"><CalendarDays className="h-4 w-4 text-muted-foreground" /> Daily Revenue vs Expenses</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={dailyData} margin={{ left: -10 }}>
+                    <defs>
+                      <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="exp" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#dc2626" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#dc2626" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={55} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip formatter={(v: any) => `₹${v}`} />
+                    <Legend />
+                    <Area type="monotone" dataKey="revenue" stroke="#2563eb" fill="url(#rev)" strokeWidth={2} name="Revenue" dot={false} />
+                    <Area type="monotone" dataKey="expenses" stroke="#dc2626" fill="url(#exp)" strokeWidth={2} name="Expenses" dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
-            ))}
+            </Card>
+
+            <Card className="p-5">
+              <h3 className="font-semibold mb-3">Daily Net Profit / Loss</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyData} margin={{ left: -10 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={55} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip formatter={(v: any) => `₹${v}`} />
+                    <Bar dataKey="profit" name="Net Profit" radius={[4, 4, 0, 0]} fill="#16a34a" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+
+            <Card className="p-5">
+              <h3 className="font-semibold mb-3">Expenses by Category</h3>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={expByCategory} layout="vertical" margin={{ left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `₹${v}`} />
+                    <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={110} />
+                    <Tooltip formatter={(v: any) => `₹${v}`} />
+                    <Bar dataKey="value" fill="#7c3aed" radius={[0, 4, 4, 0]} name="Amount" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+
+            <Card className="p-5">
+              <h3 className="font-semibold mb-3">Key Metrics</h3>
+              <div className="space-y-3">
+                {[
+                  { label: "Gross Margin", value: `${grossMargin.toFixed(1)}%`, bar: Math.min(100, grossMargin), color: "bg-blue-500" },
+                  { label: "Net Margin", value: `${netMargin.toFixed(1)}%`, bar: Math.min(100, Math.max(0, netMargin)), color: "bg-green-500" },
+                  { label: "Expense Ratio", value: `${revenue > 0 ? ((totalExpenses / revenue) * 100).toFixed(1) : 0}%`, bar: Math.min(100, revenue > 0 ? (totalExpenses / revenue) * 100 : 0), color: "bg-red-500" },
+                  { label: "Purchase/Revenue", value: `${revenue > 0 ? ((purchaseCost / revenue) * 100).toFixed(1) : 0}%`, bar: Math.min(100, revenue > 0 ? (purchaseCost / revenue) * 100 : 0), color: "bg-orange-500" },
+                ].map(m => (
+                  <div key={m.label}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-muted-foreground">{m.label}</span>
+                      <span className="font-semibold">{m.value}</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${m.color} transition-all`} style={{ width: `${m.bar}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
           </div>
-        </Card>
-      </div>
+        </>
+      )}
 
       {/* ── Expense Ledger ── */}
       <Card className="p-5">
@@ -378,13 +369,15 @@ export function FinanceTab() {
                   <td className="px-3 py-2.5 text-muted-foreground text-xs">{e.createdBy}</td>
                   <td className="px-3 py-2.5 font-semibold text-red-500">₹{e.amount.toFixed(2)}</td>
                   <td className="px-3 py-2.5">
-                    <Button
-                      variant="ghost" size="icon" className="h-7 w-7 text-destructive"
-                      onClick={() => handleDelete(e.id)}
-                      disabled={deleting === e.id}
-                    >
-                      {deleting === e.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                    </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost" size="icon" className="h-7 w-7 text-destructive"
+                        onClick={() => handleDelete(e.id)}
+                        disabled={deleting === e.id}
+                      >
+                        {deleting === e.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -402,48 +395,53 @@ export function FinanceTab() {
         </div>
       </Card>
 
-      {/* ── Purchase Cost Breakdown ── */}
-      <Card className="p-5">
-        <h3 className="font-semibold mb-4 flex items-center gap-2">
-          <ShoppingCart className="h-4 w-4 text-muted-foreground" /> Purchase Expenses (Received in period)
-          <Badge variant="secondary">{filteredPurchases.length} orders</Badge>
-        </h3>
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                {["Date", "Item", "Supplier", "Qty Received", "Cost", "Invoice No"].map(h => (
-                  <th key={h} className="text-left px-3 py-2.5 font-semibold text-xs uppercase text-muted-foreground">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPurchases.length === 0 && (
-                <tr><td colSpan={6} className="text-center py-6 text-muted-foreground">No received purchases in this period</td></tr>
-              )}
-              {filteredPurchases.map(p => (
-                <tr key={p.id} className="border-t">
-                  <td className="px-3 py-2.5">{new Date(p.createdAt).toLocaleDateString()}</td>
-                  <td className="px-3 py-2.5 font-semibold">{p.item}</td>
-                  <td className="px-3 py-2.5">{p.supplier}</td>
-                  <td className="px-3 py-2.5">{p.received}</td>
-                  <td className="px-3 py-2.5 font-semibold text-red-500">₹{p.cost.toFixed(2)}</td>
-                  <td className="px-3 py-2.5 font-mono text-xs">{p.invoice_no || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-            {filteredPurchases.length > 0 && (
-              <tfoot className="bg-muted/30">
+      {/* ── All Purchases Ledger (both pending + received) ── */}
+      {isAdmin && (
+        <Card className="p-5">
+          <h3 className="font-semibold mb-4 flex items-center gap-2">
+            <ShoppingCart className="h-4 w-4 text-muted-foreground" /> Purchase Orders in Period
+            <Badge variant="secondary">{filteredPurchases.length} orders</Badge>
+          </h3>
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
                 <tr>
-                  <td colSpan={4} className="px-3 py-2 text-sm font-semibold text-right">Total Purchase Cost:</td>
-                  <td className="px-3 py-2 font-bold text-red-500">₹{purchaseCost.toFixed(2)}</td>
-                  <td />
+                  {["Date", "Item", "Supplier", "Qty", "Status", "Cost", "Invoice No"].map(h => (
+                    <th key={h} className="text-left px-3 py-2.5 font-semibold text-xs uppercase text-muted-foreground">{h}</th>
+                  ))}
                 </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </Card>
+              </thead>
+              <tbody>
+                {filteredPurchases.length === 0 && (
+                  <tr><td colSpan={7} className="text-center py-6 text-muted-foreground">No purchases in this period</td></tr>
+                )}
+                {filteredPurchases.map(p => (
+                  <tr key={p.id} className="border-t">
+                    <td className="px-3 py-2.5">{new Date(p.createdAt).toLocaleDateString()}</td>
+                    <td className="px-3 py-2.5 font-semibold">{p.item}</td>
+                    <td className="px-3 py-2.5">{p.supplier}</td>
+                    <td className="px-3 py-2.5">{p.quantity}{p.free_quantity ? <span className="text-xs text-success ml-1">(+{p.free_quantity} free)</span> : ""}</td>
+                    <td className="px-3 py-2.5">
+                      <Badge variant={p.status === "received" ? "default" : p.status === "cancelled" ? "destructive" : "secondary"}>{p.status}</Badge>
+                    </td>
+                    <td className="px-3 py-2.5 font-semibold text-red-500">₹{p.cost.toFixed(2)}</td>
+                    <td className="px-3 py-2.5 font-mono text-xs">{p.invoice_no || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {filteredReceivedPurchases.length > 0 && (
+                <tfoot className="bg-muted/30">
+                  <tr>
+                    <td colSpan={5} className="px-3 py-2 text-sm font-semibold text-right">Total Received (Expense):</td>
+                    <td className="px-3 py-2 font-bold text-red-500">₹{purchaseCost.toFixed(2)}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </Card>
+      )}
 
       {/* ── Add Expense Dialog ── */}
       <Dialog open={showExpenseDialog} onOpenChange={setShowExpenseDialog}>
