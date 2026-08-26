@@ -59,6 +59,16 @@ export interface Bill {
   createdBy: string;
 }
 
+/** Calculates net revenue for a bill accounting for refunds and discounts */
+export function getBillNetTotal(b: Bill): number {
+  if (b.status === "refunded") return 0;
+  if (b.status === "partially_refunded") {
+    const remainingGross = b.items.reduce((s, it) => s + (it.quantity - (it.refundedQuantity || 0)) * it.price, 0);
+    return +(remainingGross * (1 - (b.discountPct || 0) / 100)).toFixed(2);
+  }
+  return b.total;
+}
+
 export interface Purchase {
   id: string;
   item: string;
@@ -111,8 +121,10 @@ interface PharmacyState {
     amount: number
   ) => Promise<void>;
   addBill: (b: Omit<Bill, "id" | "createdAt" | "createdBy">) => Promise<Bill>;
+  deleteBill: (id: string, restoreStock?: boolean) => Promise<void>;
   refundItems: (id: string, itemsToRefund: { medicineId: string; qty: number }[]) => Promise<void>;
   addPurchase: (p: Omit<Purchase, "id" | "createdAt">) => Promise<void>;
+  deletePurchase: (id: string, revertStock?: boolean) => Promise<void>;
   updatePurchaseStatus: (
     id: string,
     status: Purchase["status"]
@@ -511,6 +523,41 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     setBills(prev => prev.map(b => b.id === id ? { ...b, status: newStatus, items: updatedItems } : b));
   };
 
+  const deleteBill = async (id: string, restoreStock: boolean = true) => {
+    const bill = bills.find((b) => b.id === id);
+    if (!bill) return;
+
+    // If restoreStock is requested, restore unrefunded stock back to pharmacy
+    if (restoreStock) {
+      for (const it of bill.items) {
+        const remainingQty = it.quantity - (it.refundedQuantity || 0);
+        if (remainingQty <= 0) continue;
+
+        const med = medicines.find((m) => m.id === it.medicineId);
+        if (med) {
+          const nq = med.pharmacyQuantity + remainingQty;
+          await supabase.from("medicines").update({ pharmacy_quantity: nq }).eq("id", med.id);
+          setMedicines((prev) => prev.map((m) => m.id === med.id ? { ...m, pharmacyQuantity: nq } : m));
+          continue;
+        }
+
+        const mat = materials.find((m) => m.id === it.medicineId);
+        if (mat) {
+          const nq = mat.pharmacyQuantity + remainingQty;
+          await supabase.from("materials").update({ pharmacy_quantity: nq }).eq("id", mat.id);
+          setMaterials((prev) => prev.map((m) => m.id === mat.id ? { ...m, pharmacyQuantity: nq } : m));
+        }
+      }
+    }
+
+    // Delete bill items and bill record from Supabase
+    await supabase.from("bill_items").delete().eq("bill_id", id);
+    const { error } = await supabase.from("bills").delete().eq("id", id);
+    if (error) throw error;
+
+    setBills((prev) => prev.filter((b) => b.id !== id));
+  };
+
   /* --- Purchases --- */
   const addPurchase = async (p: Omit<Purchase, "id" | "createdAt">) => {
     const id = "PO" + Date.now();
@@ -596,6 +643,41 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const deletePurchase = async (id: string, revertStock: boolean = true) => {
+    const purchase = purchases.find((p) => p.id === id);
+    if (!purchase) return;
+
+    // If purchase was received and revertStock is true, remove the added items from main stock
+    if (revertStock && purchase.status === "received" && purchase.received > 0) {
+      const qtyToDeduct = purchase.received;
+
+      const matchingMeds = medicines.filter(
+        (m) => m.name.toLowerCase() === purchase.item.toLowerCase()
+      );
+      if (matchingMeds.length > 0) {
+        const target = matchingMeds[0];
+        const newQty = Math.max(0, target.mainQuantity - qtyToDeduct);
+        await supabase.from("medicines").update({ main_quantity: newQty }).eq("id", target.id);
+        setMedicines((prev) => prev.map((m) => m.id === target.id ? { ...m, mainQuantity: newQty } : m));
+      } else {
+        const matchingMats = materials.filter(
+          (m) => m.name.toLowerCase() === purchase.item.toLowerCase()
+        );
+        if (matchingMats.length > 0) {
+          const target = matchingMats[0];
+          const newQty = Math.max(0, target.mainQuantity - qtyToDeduct);
+          await supabase.from("materials").update({ main_quantity: newQty }).eq("id", target.id);
+          setMaterials((prev) => prev.map((m) => m.id === target.id ? { ...m, mainQuantity: newQty } : m));
+        }
+      }
+    }
+
+    const { error } = await supabase.from("purchases").delete().eq("id", id);
+    if (error) throw error;
+
+    setPurchases((prev) => prev.filter((p) => p.id !== id));
+  };
+
   /* --- Doctors --- */
   const addDoctor = async (d: Omit<Doctor, "id" | "active">) => {
     const { data, error } = await supabase
@@ -667,8 +749,10 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         deleteMaterial,
         transferStock,
         addBill,
+        deleteBill,
         refundItems,
         addPurchase,
+        deletePurchase,
         updatePurchaseStatus,
         addDoctor,
         deleteDoctor,

@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from "react";
-import { usePharmacy } from "@/lib/pharmacy-store";
+import { usePharmacy, getBillNetTotal } from "@/lib/pharmacy-store";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -264,16 +264,22 @@ function buildAnswer(
 export function AnalyticsTab() {
   const { bills, medicines, materials, purchases } = usePharmacy();
   const active = bills.filter((b) => b.status !== "refunded");
-  const totalRevenue = active.reduce((s, b) => s + b.total, 0);
-  const totalQty = active.reduce((s, b) => s + b.items.reduce((x, i) => x + i.quantity, 0), 0);
+  const totalRevenue = active.reduce((s, b) => s + getBillNetTotal(b), 0);
+  const totalQty = active.reduce((s, b) => s + b.items.reduce((x, i) => x + (i.quantity - (i.refundedQuantity || 0)), 0), 0);
   const totalTx = active.length;
 
   const topMeds = useMemo(() => {
     const map = new Map<string, { name: string; qty: number; revenue: number }>();
-    for (const b of active) for (const it of b.items) {
-      const cur = map.get(it.name) ?? { name: it.name, qty: 0, revenue: 0 };
-      cur.qty += it.quantity; cur.revenue += it.quantity * it.price;
-      map.set(it.name, cur);
+    for (const b of active) {
+      const disc = 1 - (b.discountPct || 0) / 100;
+      for (const it of b.items) {
+        const netQ = it.quantity - (it.refundedQuantity || 0);
+        if (netQ <= 0) continue;
+        const cur = map.get(it.name) ?? { name: it.name, qty: 0, revenue: 0 };
+        cur.qty += netQ;
+        cur.revenue += netQ * it.price * disc;
+        map.set(it.name, cur);
+      }
     }
     return [...map.values()].sort((a, b) => b.qty - a.qty).slice(0, 10);
   }, [active]);
@@ -285,7 +291,7 @@ export function AnalyticsTab() {
     for (const b of active) {
       const doc = b.doctorName || "Walk-in / None";
       const cur = map.get(doc) ?? { name: doc, revenue: 0, prescriptions: 0 };
-      cur.revenue += b.total;
+      cur.revenue += getBillNetTotal(b);
       cur.prescriptions += 1;
       map.set(doc, cur);
     }

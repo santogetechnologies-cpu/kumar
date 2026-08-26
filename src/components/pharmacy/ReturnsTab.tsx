@@ -65,6 +65,8 @@ export function ReturnsTab() {
               const isFullyRefunded = maxRef === 0;
               const currentRefundQty = refundQtys[it.medicineId] ?? maxRef;
 
+              const effectiveRate = it.price * (1 - (bill.discountPct || 0) / 100);
+
               return (
                 <div key={i} className="flex justify-between items-center text-sm gap-2">
                   <div className="flex-1">
@@ -72,9 +74,16 @@ export function ReturnsTab() {
                     <span className="text-muted-foreground ml-1">
                       (Total: {it.quantity} | Refunded: {it.refundedQuantity || 0})
                     </span>
+                    {bill.discountPct > 0 && (
+                      <span className="text-[10px] text-muted-foreground block">
+                        ₹{it.price} − {bill.discountPct}% disc = ₹{effectiveRate.toFixed(2)}/unit
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground font-semibold w-20 text-right">₹{(it.price * currentRefundQty).toFixed(2)}</span>
+                    <span className="text-muted-foreground font-semibold w-24 text-right">
+                      ₹{(effectiveRate * currentRefundQty).toFixed(2)}
+                    </span>
                     {!isFullyRefunded && bill.status !== "refunded" && (
                       <div className="flex items-center gap-1 w-24">
                         <Input 
@@ -98,12 +107,24 @@ export function ReturnsTab() {
             })}
             <div className="space-y-1 pt-2 border-t mt-4">
               <div className="flex justify-between font-bold text-muted-foreground">
-                <span>Original Bill Amount</span>
+                <span>Original Bill Paid Amount</span>
                 <span>₹{bill.total.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between font-bold text-lg text-primary pt-1">
+              {bill.discountPct > 0 && (
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Applied Discount</span>
+                  <span>{bill.discountPct}% off</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-lg text-primary pt-1 border-t">
                 <span>Total Refund Amount</span>
-                <span>₹{bill.items.reduce((sum, it) => sum + ((refundQtys[it.medicineId] ?? (it.quantity - (it.refundedQuantity || 0))) * it.price), 0).toFixed(2)}</span>
+                <span>
+                  ₹{bill.items.reduce((sum, it) => {
+                    const refQ = refundQtys[it.medicineId] ?? (it.quantity - (it.refundedQuantity || 0));
+                    const effectiveRate = it.price * (1 - (bill.discountPct || 0) / 100);
+                    return sum + (refQ * effectiveRate);
+                  }, 0).toFixed(2)}
+                </span>
               </div>
             </div>
           </div>

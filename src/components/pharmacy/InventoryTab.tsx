@@ -465,10 +465,17 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
 }
 
 function PurchasesMgmt() {
-  const { medicines, materials, purchases, addPurchase, updatePurchaseStatus } = usePharmacy();
+  const { medicines, materials, purchases, addPurchase, updatePurchaseStatus, deletePurchase } = usePharmacy();
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
+
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
+  const [purchaseToDelete, setPurchaseToDelete] = useState<any | null>(null);
+  const [revertStock, setRevertStock] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+
   const allProducts = [...medicines.map(m => m.name), ...materials.map(m => m.name)];
 
   const handleSave = async (rows: InvoiceRow[], meta: InvoiceMeta) => {
@@ -547,13 +554,30 @@ function PurchasesMgmt() {
                   <td className="px-3 py-2.5">{p.mrp ? `₹${p.mrp}` : "-"}</td>
                   <td className={`px-3 py-2.5 font-medium ${marginClass}`}>{p.mrp ? `₹${margin.toFixed(2)}` : "-"}</td>
                   <td className="px-3 py-2.5"><Badge variant={p.status === "received" ? "default" : p.status === "cancelled" ? "destructive" : "secondary"}>{p.status}</Badge></td>
-                  <td className="px-3 py-2.5 text-right">
-                    {p.status === "pending" && (
-                      <div className="flex gap-2 justify-end">
-                        <Button variant="outline" size="sm" onClick={() => updatePurchaseStatus(p.id, "cancelled")}>Cancel</Button>
-                        <Button size="sm" onClick={() => updatePurchaseStatus(p.id, "received")}>Mark Received</Button>
-                      </div>
-                    )}
+                  <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                    <div className="flex items-center gap-1 justify-end">
+                      {p.status === "pending" && (
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => updatePurchaseStatus(p.id, "cancelled")}>
+                            Cancel
+                          </Button>
+                          <Button size="sm" onClick={() => updatePurchaseStatus(p.id, "received")}>
+                            Mark Received
+                          </Button>
+                        </>
+                      )}
+                      {isAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                          onClick={() => setPurchaseToDelete(p)}
+                          title="Delete Purchase Order (Admin only)"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -561,6 +585,63 @@ function PurchasesMgmt() {
           </tbody>
         </table>
       </div>
+
+      {/* Delete Purchase Confirmation Dialog */}
+      <Dialog open={!!purchaseToDelete} onOpenChange={(o) => { if (!o && !deleting) setPurchaseToDelete(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" /> Delete Purchase {purchaseToDelete?.id}
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this purchase order? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2 text-sm">
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
+              <div><strong>Item:</strong> {purchaseToDelete?.item}</div>
+              <div><strong>Supplier:</strong> {purchaseToDelete?.supplier}</div>
+              <div><strong>Cost:</strong> ₹{purchaseToDelete?.cost}</div>
+              <div><strong>Status:</strong> {purchaseToDelete?.status}</div>
+            </div>
+            {purchaseToDelete?.status === "received" && (
+              <label className="flex items-center gap-2 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={revertStock}
+                  onChange={(e) => setRevertStock(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <span className="text-xs font-medium">Revert / Deduct received quantity from Main stock</span>
+              </label>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPurchaseToDelete(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={async () => {
+                if (!purchaseToDelete) return;
+                setDeleting(true);
+                try {
+                  await deletePurchase(purchaseToDelete.id, revertStock);
+                  toast.success("Purchase order deleted successfully");
+                  setPurchaseToDelete(null);
+                } catch (e: any) {
+                  toast.error("Failed to delete purchase: " + e.message);
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Deleting…</> : <><Trash2 className="h-4 w-4 mr-2" /> Confirm Delete</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

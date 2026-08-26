@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { usePharmacy, type Expense } from "@/lib/pharmacy-store";
+import { usePharmacy, type Expense, getBillNetTotal } from "@/lib/pharmacy-store";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -60,7 +60,7 @@ const EXPENSE_CATS = [
 
 /* ── Main Component ── */
 export function FinanceTab() {
-  const { bills, purchases, expenses, addExpense, deleteExpense } = usePharmacy();
+  const { bills, purchases, expenses, addExpense, deleteExpense, deletePurchase } = usePharmacy();
   const { role } = useAuth();
   const isAdmin = role === "admin";
 
@@ -103,7 +103,7 @@ export function FinanceTab() {
     }), [expenses, from, to]);
 
   /* ── P&L Calculations ── */
-  const revenue = filteredBills.reduce((s, b) => s + b.total, 0);
+  const revenue = filteredBills.reduce((s, b) => s + getBillNetTotal(b), 0);
   const purchaseCost = filteredReceivedPurchases.reduce((s, p) => s + p.cost, 0);
   const otherExpenses = filteredExpenses.reduce((s, e) => s + e.amount, 0);
   const totalExpenses = purchaseCost + otherExpenses;
@@ -123,7 +123,7 @@ export function FinanceTab() {
     }
     filteredBills.forEach(b => {
       const k = new Date(b.createdAt).toISOString().slice(0, 10);
-      if (days[k]) days[k].revenue += b.total;
+      if (days[k]) days[k].revenue += getBillNetTotal(b);
     });
     filteredReceivedPurchases.forEach(p => {
       const k = new Date(p.createdAt).toISOString().slice(0, 10);
@@ -406,14 +406,14 @@ export function FinanceTab() {
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
-                  {["Date", "Item", "Supplier", "Qty", "Status", "Cost", "Invoice No"].map(h => (
+                  {["Date", "Item", "Supplier", "Qty", "Status", "Cost", "Invoice No", ""].map(h => (
                     <th key={h} className="text-left px-3 py-2.5 font-semibold text-xs uppercase text-muted-foreground">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filteredPurchases.length === 0 && (
-                  <tr><td colSpan={7} className="text-center py-6 text-muted-foreground">No purchases in this period</td></tr>
+                  <tr><td colSpan={8} className="text-center py-6 text-muted-foreground">No purchases in this period</td></tr>
                 )}
                 {filteredPurchases.map(p => (
                   <tr key={p.id} className="border-t">
@@ -426,6 +426,27 @@ export function FinanceTab() {
                     </td>
                     <td className="px-3 py-2.5 font-semibold text-red-500">₹{p.cost.toFixed(2)}</td>
                     <td className="px-3 py-2.5 font-mono text-xs">{p.invoice_no || "—"}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      {isAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                          onClick={async () => {
+                            if (!window.confirm(`Delete purchase ${p.id} (${p.item})?`)) return;
+                            try {
+                              await deletePurchase(p.id, true);
+                              toast.success("Purchase deleted");
+                            } catch (e: any) {
+                              toast.error("Failed: " + e.message);
+                            }
+                          }}
+                          title="Delete Purchase (Admin only)"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -434,7 +455,7 @@ export function FinanceTab() {
                   <tr>
                     <td colSpan={5} className="px-3 py-2 text-sm font-semibold text-right">Total Received (Expense):</td>
                     <td className="px-3 py-2 font-bold text-red-500">₹{purchaseCost.toFixed(2)}</td>
-                    <td />
+                    <td colSpan={2} />
                   </tr>
                 </tfoot>
               )}

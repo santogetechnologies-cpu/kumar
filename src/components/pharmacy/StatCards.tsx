@@ -2,10 +2,14 @@ import { usePharmacy } from "@/lib/pharmacy-store";
 import { AlertTriangle, CheckCircle2, Package } from "lucide-react";
 
 export function StatCards() {
-  const { medicines, bills } = usePharmacy();
+  const { medicines, materials, bills } = usePharmacy();
   const today = new Date().toDateString();
-  const dispensedToday = bills.filter((b) => new Date(b.createdAt).toDateString() === today && b.status === "paid").length;
-  const lowStock = medicines.filter((m) => m.quantity <= m.minLevel).length;
+  const dispensedToday = bills.filter(
+    (b) => new Date(b.createdAt).toDateString() === today && (b.status === "paid" || b.status === "partially_refunded")
+  ).length;
+
+  const allItems = [...medicines, ...materials];
+  const lowStock = allItems.filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= m.minLevel).length;
 
   return (
     <div className="grid gap-4 sm:grid-cols-3">
@@ -20,13 +24,13 @@ export function StatCards() {
         label="Low Stock Alerts"
         value={lowStock}
         sub="Items need reorder"
-        color="destructive"
+        color={lowStock > 0 ? "destructive" : "success"}
         Icon={AlertTriangle}
       />
       <StatCard
-        label="Total Medicines"
-        value={medicines.length}
-        sub="Active items"
+        label="Total Active Inventory"
+        value={`${medicines.length + materials.length}`}
+        sub={`${medicines.length} Meds · ${materials.length} Materials`}
         color="primary"
         Icon={Package}
       />
