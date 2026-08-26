@@ -46,6 +46,7 @@ export interface Bill {
   id: string;
   patientName: string;
   patientId: string;
+  doctorName?: string;
   items: BillItem[];
   total: number;
   discountPct: number;
@@ -58,6 +59,20 @@ export interface Bill {
 export interface Purchase {
   id: string;
   item: string;
+  supplier: string;
+  quantity: number;
+  received: number;
+  cost: number;
+  status: "pending" | "received" | "cancelled";
+  createdAt: string;
+}
+
+export interface Doctor {
+  id: string;
+  name: string;
+  specialty: string;
+  active: boolean;
+}
   supplier: string;
   quantity: number;
   received: number;
@@ -91,6 +106,15 @@ interface PharmacyState {
     id: string,
     status: Purchase["status"]
   ) => Promise<void>;
+  
+  doctors: Doctor[];
+  addDoctor: (d: Omit<Doctor, "id" | "active">) => Promise<void>;
+  deleteDoctor: (id: string) => Promise<void>;
+  toggleDoctor: (id: string, active: boolean) => Promise<void>;
+
+  canTransfer: boolean;
+  updateSetting: (key: string, value: string) => Promise<void>;
+
   refresh: () => Promise<void>;
 }
 
@@ -139,6 +163,7 @@ async function fetchBills(): Promise<Bill[]> {
     id: b.id,
     patientName: b.patient_name,
     patientId: b.patient_id ?? "",
+    doctorName: b.doctor_name ?? "",
     total: b.total,
     discountPct: b.discount_pct ?? 0,
     status: b.status,
@@ -161,16 +186,20 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [bills, setBills] = useState<Bill[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [canTransfer, setCanTransfer] = useState(true);
   const [loading, setLoading] = useState(true);
 
   const loadAll = async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const [medRes, matRes, purRes] = await Promise.all([
+      const [medRes, matRes, purRes, docRes, setRes] = await Promise.all([
         supabase.from("medicines").select("*").order("name"),
         supabase.from("materials").select("*").order("name"),
         supabase.from("purchases").select("*").order("created_at", { ascending: false }),
+        supabase.from("doctors").select("*").order("name"),
+        supabase.from("settings").select("*"),
       ]);
       setMedicines((medRes.data ?? []).map(rowToMedicine));
       setMaterials((matRes.data ?? []).map(rowToMaterial));
@@ -187,6 +216,18 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
           createdAt: p.created_at,
         }))
       );
+      setDoctors(
+        (docRes.data ?? []).map((d: any) => ({
+          id: d.id,
+          name: d.name,
+          specialty: d.specialty ?? "",
+          active: d.active,
+        }))
+      );
+      const allowTransferSetting = (setRes.data ?? []).find(s => s.key === "allow_pharmacist_transfer");
+      if (allowTransferSetting) {
+        setCanTransfer(allowTransferSetting.value === "true");
+      }
     } finally {
       setLoading(false);
     }
@@ -340,6 +381,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       id: billId,
       patient_name: b.patientName,
       patient_id: b.patientId,
+      doctor_name: b.doctorName,
       total: b.total,
       discount_pct: b.discountPct,
       status: b.status,
@@ -388,6 +430,25 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
           : m;
       })
     );
+    // Also deduct material stock if any bill items are materials
+    setMaterials((prev) =>
+      prev.map((m) => {
+        const it = b.items.find((i) => i.medicineId === m.id);
+        return it
+          ? { ...m, pharmacyQuantity: Math.max(0, m.pharmacyQuantity - it.quantity) }
+          : m;
+      })
+    );
+    for (const it of b.items) {
+      if (!it.medicineId) continue;
+      const mat = materials.find((x) => x.id === it.medicineId);
+      if (!mat) continue;
+      await supabase
+        .from("materials")
+        .update({ pharmacy_quantity: Math.max(0, mat.pharmacyQuantity - it.quantity) })
+        .eq("id", it.medicineId);
+    }
+
     return newBill;
   };
 
@@ -495,6 +556,38 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  /* --- Doctors --- */
+  const addDoctor = async (d: Omit<Doctor, "id" | "active">) => {
+    const { data, error } = await supabase
+      .from("doctors")
+      .insert({ name: d.name, specialty: d.specialty })
+      .select()
+      .single();
+    if (error) throw error;
+    setDoctors((prev) => [...prev, { id: data.id, name: data.name, specialty: data.specialty, active: data.active }]);
+  };
+
+  const deleteDoctor = async (id: string) => {
+    const { error } = await supabase.from("doctors").delete().eq("id", id);
+    if (error) throw error;
+    setDoctors((prev) => prev.filter((d) => d.id !== id));
+  };
+
+  const toggleDoctor = async (id: string, active: boolean) => {
+    const { error } = await supabase.from("doctors").update({ active }).eq("id", id);
+    if (error) throw error;
+    setDoctors((prev) => prev.map((d) => d.id === id ? { ...d, active } : d));
+  };
+
+  /* --- Settings --- */
+  const updateSetting = async (key: string, value: string) => {
+    const { error } = await supabase.from("settings").upsert({ key, value });
+    if (error) throw error;
+    if (key === "allow_pharmacist_transfer") {
+      setCanTransfer(value === "true");
+    }
+  };
+
   return (
     <Ctx.Provider
       value={{
@@ -502,6 +595,8 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         materials,
         bills,
         purchases,
+        doctors,
+        canTransfer,
         loading,
         addMedicine,
         updateMedicine,
@@ -514,6 +609,10 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         refundBill,
         addPurchase,
         updatePurchaseStatus,
+        addDoctor,
+        deleteDoctor,
+        toggleDoctor,
+        updateSetting,
         refresh: loadAll,
       }}
     >
