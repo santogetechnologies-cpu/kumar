@@ -180,17 +180,28 @@ function rowToMaterial(r: any): Material {
   };
 }
 
-const fetchBills = async () => {
+const fetchBills = async (allMedicines?: Medicine[], allMaterials?: Material[]) => {
   const { data, error } = await supabase.from("bills").select("*, items:bill_items(*)").order("created_at", { ascending: false });
   if (error) return [];
   return data.map((b: any) => ({
     id: b.id, patientName: b.patient_name, patientId: b.patient_id, doctorId: b.doctor_id, doctorName: b.doctor_name,
     total: b.total, discountPct: b.discount_pct, status: b.status,
     paymentMethod: b.payment_method, createdAt: b.created_at, createdBy: b.created_by,
-    items: (b.items || []).map((i: any) => ({
-      id: i.id, medicineId: i.medicine_id, name: i.name, quantity: i.quantity,
-      refundedQuantity: i.refunded_quantity, price: i.price
-    }))
+    items: (b.items || []).map((i: any) => {
+      let resolvedId = i.medicine_id;
+      if (!resolvedId && allMaterials) {
+        const mat = allMaterials.find(m => m.name.toLowerCase() === i.name?.toLowerCase());
+        if (mat) resolvedId = mat.id;
+      }
+      return {
+        id: i.id,
+        medicineId: resolvedId || i.id,
+        name: i.name,
+        quantity: i.quantity,
+        refundedQuantity: i.refunded_quantity,
+        price: i.price
+      };
+    })
   }));
 };
 
@@ -220,9 +231,11 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         supabase.from("settings").select("*"),
         supabase.from("expenses").select("*").order("date", { ascending: false }),
       ]);
-      setMedicines((medRes.data ?? []).map(rowToMedicine));
-      setMaterials((matRes.data ?? []).map(rowToMaterial));
-      setBills(await fetchBills());
+      const meds = (medRes.data ?? []).map(rowToMedicine);
+      const mats = (matRes.data ?? []).map(rowToMaterial);
+      setMedicines(meds);
+      setMaterials(mats);
+      setBills(await fetchBills(meds, mats));
       setPurchases((purRes.data ?? []).map(p => ({
         id: p.id, item: p.item, supplier: p.supplier, quantity: p.quantity,
         received: p.received, cost: p.cost, status: p.status, createdAt: p.created_at,
@@ -481,7 +494,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
 
     for (const refItem of itemsToRefund) {
       if (refItem.qty <= 0) continue;
-      const bItem = updatedItems.find(i => i.medicineId === refItem.medicineId);
+      const bItem = updatedItems.find(i => i.medicineId === refItem.medicineId || (i.id && i.id === refItem.medicineId));
       if (!bItem) continue;
 
       const newRefQty = (bItem.refundedQuantity || 0) + refItem.qty;
@@ -497,13 +510,13 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       bItem.refundedQuantity = newRefQty;
 
       // Update Stock (check medicines then materials)
-      const med = medicines.find(m => m.id === refItem.medicineId);
+      const med = medicines.find(m => m.id === refItem.medicineId || m.name.toLowerCase() === bItem.name.toLowerCase());
       if (med) {
         const nq = med.pharmacyQuantity + refItem.qty;
         await supabase.from("medicines").update({ pharmacy_quantity: nq }).eq("id", med.id);
         setMedicines(prev => prev.map(m => m.id === med.id ? { ...m, pharmacyQuantity: nq } : m));
       } else {
-        const mat = materials.find(m => m.id === refItem.medicineId);
+        const mat = materials.find(m => m.id === refItem.medicineId || m.name.toLowerCase() === bItem.name.toLowerCase());
         if (mat) {
           const nq = mat.pharmacyQuantity + refItem.qty;
           await supabase.from("materials").update({ pharmacy_quantity: nq }).eq("id", mat.id);
@@ -533,7 +546,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         const remainingQty = it.quantity - (it.refundedQuantity || 0);
         if (remainingQty <= 0) continue;
 
-        const med = medicines.find((m) => m.id === it.medicineId);
+        const med = medicines.find((m) => m.id === it.medicineId || m.name.toLowerCase() === it.name.toLowerCase());
         if (med) {
           const nq = med.pharmacyQuantity + remainingQty;
           await supabase.from("medicines").update({ pharmacy_quantity: nq }).eq("id", med.id);
@@ -541,7 +554,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
           continue;
         }
 
-        const mat = materials.find((m) => m.id === it.medicineId);
+        const mat = materials.find((m) => m.id === it.medicineId || m.name.toLowerCase() === it.name.toLowerCase());
         if (mat) {
           const nq = mat.pharmacyQuantity + remainingQty;
           await supabase.from("materials").update({ pharmacy_quantity: nq }).eq("id", mat.id);
