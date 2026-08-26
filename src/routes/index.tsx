@@ -20,7 +20,16 @@ type Tab = "dispensing" | "returns" | "inventory" | "payments" | "analytics" | "
 function HomePage() {
   const { user, role, loading } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<Tab>("dispensing");
+  // Default tab based on role
+  const [tab, setTab] = useState<Tab>(role === "admin" ? "analytics" : "dispensing");
+
+  useEffect(() => {
+    // Sync tab when role loads
+    if (!loading && user) {
+      if (role === "admin" && (tab === "dispensing" || tab === "returns")) setTab("analytics");
+      if (role !== "admin" && (tab === "analytics" || tab === "users")) setTab("dispensing");
+    }
+  }, [role, loading, user]);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/login" });
@@ -36,16 +45,20 @@ function HomePage() {
 
   if (!user) return null;
 
-  const TABS: { id: Tab; label: string; icon: any; adminOnly?: boolean }[] = [
-    { id: "dispensing", label: "Dispensing", icon: PillBottle },
-    { id: "returns", label: "Returns & Refunds", icon: Undo2 },
-    { id: "inventory", label: "Full Inventory", icon: Boxes },
+  const TABS: { id: Tab; label: string; icon: any; adminOnly?: boolean; pharmacistOnly?: boolean }[] = [
+    { id: "analytics", label: "Dashboard & Analytics", icon: BarChart3, adminOnly: true },
+    { id: "dispensing", label: "Dispensing", icon: PillBottle, pharmacistOnly: true },
+    { id: "returns", label: "Returns & Refunds", icon: Undo2, pharmacistOnly: true },
+    { id: "inventory", label: "Inventory", icon: Boxes },
     { id: "payments", label: "Payment History", icon: Receipt },
-    { id: "analytics", label: "Analytics & Reports", icon: BarChart3 },
     { id: "users", label: "User Management", icon: Users, adminOnly: true },
   ];
 
-  const visibleTabs = TABS.filter((t) => !t.adminOnly || role === "admin");
+  const visibleTabs = TABS.filter((t) => {
+    if (t.adminOnly && role !== "admin") return false;
+    if (t.pharmacistOnly && role === "admin") return false;
+    return true;
+  });
 
   return (
     <div className="min-h-screen bg-background">

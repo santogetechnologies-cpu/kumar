@@ -21,18 +21,19 @@ interface CartItem {
   details?: string;
 }
 
-/** Group medicines by name, sorted by expiry (FIFO) */
-interface MedicineGroup {
+/** Group items by name, sorted by expiry (FIFO) */
+interface ItemGroup {
   name: string;
   category: string;
-  batches: Medicine[]; // sorted earliest expiry first
+  batches: Medicine[]; // or Material[]
   totalPharmacyStock: number;
 }
 
 export function DispensingTab() {
-  const { medicines, addBill } = usePharmacy();
+  const { medicines, materials, doctors, addBill } = usePharmacy();
   const [q, setQ] = useState("");
-  const [selectedGroup, setSelectedGroup] = useState<MedicineGroup | null>(null);
+  const [activeTab, setActiveTab] = useState<"medicines" | "materials">("medicines");
+  const [selectedGroup, setSelectedGroup] = useState<ItemGroup | null>(null);
 
   // Prescription Form
   const [isDetailed, setIsDetailed] = useState(false);
@@ -53,14 +54,15 @@ export function DispensingTab() {
   const [lastBillId, setLastBillId] = useState<string | null>(null);
 
   // Build FIFO groups: group by name, sort batches by expiry date ascending
-  const groups = useMemo<MedicineGroup[]>(() => {
+  const groups = useMemo<ItemGroup[]>(() => {
+    const source = activeTab === "medicines" ? medicines : materials;
     const map = new Map<string, Medicine[]>();
-    for (const m of medicines) {
+    for (const m of source) {
       const key = m.name.toLowerCase();
       if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(m);
+      map.get(key)!.push(m as Medicine); // cast for simplicity, material has same shape
     }
-    const result: MedicineGroup[] = [];
+    const result: ItemGroup[] = [];
     map.forEach((batches, _key) => {
       const sorted = [...batches].sort(
         (a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime()
@@ -69,7 +71,7 @@ export function DispensingTab() {
       result.push({ name: sorted[0].name, category: sorted[0].category, batches: sorted, totalPharmacyStock });
     });
     return result.sort((a, b) => a.name.localeCompare(b.name));
-  }, [medicines]);
+  }, [medicines, materials, activeTab]);
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -92,7 +94,7 @@ export function DispensingTab() {
   }, [isDetailed, autoCalc, dosagePattern, duration]);
 
   /** FIFO: deduct qty from earliest expiry batches first */
-  const resolveFifoBatches = (group: MedicineGroup, totalQty: number): { med: Medicine; qty: number }[] => {
+  const resolveFifoBatches = (group: ItemGroup, totalQty: number): { med: Medicine; qty: number }[] => {
     const allocations: { med: Medicine; qty: number }[] = [];
     let remaining = totalQty;
     for (const med of group.batches) {
@@ -168,6 +170,8 @@ export function DispensingTab() {
   const grossTotal = cart.reduce((s, x) => s + x.price * x.quantity, 0);
   const total = grossTotal - (grossTotal * discountPct) / 100;
 
+  const [doctorName, setDoctorName] = useState("");
+
   const dispense = async () => {
     if (!patientName.trim()) { toast.error("Enter patient name"); return; }
     if (cart.length === 0) { toast.error("Cart is empty"); return; }
@@ -175,6 +179,7 @@ export function DispensingTab() {
       const bill = await addBill({
         patientName: patientName.trim(),
         patientId: patientId.trim() || "P" + Math.floor(1000 + Math.random() * 9000),
+        doctorName: doctorName,
         items: cart.map(c => ({ medicineId: c.medicineId, name: c.name, quantity: c.quantity, price: c.price })),
         total,
         discountPct,
@@ -205,8 +210,19 @@ export function DispensingTab() {
             </div>
             <div>
               <h2 className="font-semibold">Prescription</h2>
-              <p className="text-xs text-muted-foreground">Search & add medicines (FIFO batch auto-selected)</p>
+              <p className="text-xs text-muted-foreground">Search & add items (FIFO batch auto-selected)</p>
             </div>
+          </div>
+
+          <div className="flex border rounded-lg overflow-hidden mb-4 p-1 bg-muted/20">
+            <button
+              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === "medicines" ? "bg-primary text-primary-foreground shadow" : "hover:bg-muted"}`}
+              onClick={() => { setActiveTab("medicines"); setSelectedGroup(null); setQ(""); }}
+            >Medicines</button>
+            <button
+              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === "materials" ? "bg-primary text-primary-foreground shadow" : "hover:bg-muted"}`}
+              onClick={() => { setActiveTab("materials"); setSelectedGroup(null); setQ(""); }}
+            >Materials</button>
           </div>
 
           <div className="relative mb-4">
@@ -214,16 +230,16 @@ export function DispensingTab() {
             <Input
               value={q}
               onChange={e => { setQ(e.target.value); setSelectedGroup(null); }}
-              placeholder="Type medicine name or batch number..."
+              placeholder={`Type ${activeTab.slice(0,-1)} name or batch number...`}
               className="pl-9 h-11 text-base"
             />
           </div>
 
-          {/* Search results — grouped by medicine name */}
+          {/* Search results — grouped by item name */}
           {!selectedGroup && (
             <div className="grid gap-2 max-h-[300px] overflow-auto pr-1">
               {filtered.length === 0 && q && (
-                <div className="text-center py-6 text-muted-foreground text-sm">No medicines found</div>
+                <div className="text-center py-6 text-muted-foreground text-sm">No items found</div>
               )}
               {filtered.map((g) => {
                 const out = g.totalPharmacyStock <= 0;
@@ -399,9 +415,24 @@ export function DispensingTab() {
               <Label htmlFor="pname">Patient Name *</Label>
               <Input id="pname" value={patientName} onChange={e => setPatientName(e.target.value)} placeholder="e.g. Mr. Ramesh" className="h-11" />
             </div>
-            <div>
-              <Label htmlFor="pid">Patient ID (optional)</Label>
-              <Input id="pid" value={patientId} onChange={e => setPatientId(e.target.value)} placeholder="P1234" className="h-11" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="pid">Patient ID (optional)</Label>
+                <Input id="pid" value={patientId} onChange={e => setPatientId(e.target.value)} placeholder="P1234" className="h-11" />
+              </div>
+              <div>
+                <Label>Doctor</Label>
+                <select
+                  className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={doctorName}
+                  onChange={e => setDoctorName(e.target.value)}
+                >
+                  <option value="">— Select Doctor —</option>
+                  {doctors.filter(d => d.active).map(d => (
+                    <option key={d.id} value={d.name}>{d.name} {d.specialty ? `(${d.specialty})` : ""}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         </Card>

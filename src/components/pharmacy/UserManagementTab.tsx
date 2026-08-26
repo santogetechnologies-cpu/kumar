@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
+import { usePharmacy } from "@/lib/pharmacy-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +40,9 @@ import {
   RefreshCw,
   Mail,
   KeyRound,
+  Stethoscope,
+  Settings2,
+  Lock
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -52,6 +56,7 @@ interface PharmacyUser {
 
 export function UserManagementTab() {
   const { user: currentUser } = useAuth();
+  const { doctors, addDoctor, deleteDoctor, toggleDoctor, canTransfer, updateSetting } = usePharmacy();
   const [users, setUsers] = useState<PharmacyUser[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -71,6 +76,12 @@ export function UserManagementTab() {
   // Delete user
   const [deleteTarget, setDeleteTarget] = useState<PharmacyUser | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Doctor
+  const [showAddDoctor, setShowAddDoctor] = useState(false);
+  const [newDoctorName, setNewDoctorName] = useState("");
+  const [newDoctorSpecialty, setNewDoctorSpecialty] = useState("");
+  const [addingDoctor, setAddingDoctor] = useState(false);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -188,6 +199,21 @@ export function UserManagementTab() {
     } finally {
       setDeleting(false);
     }
+  /* ---- Doctors ---- */
+  const handleAddDoctor = async () => {
+    if (!newDoctorName) return toast.error("Doctor name is required");
+    setAddingDoctor(true);
+    try {
+      await addDoctor({ name: newDoctorName, specialty: newDoctorSpecialty });
+      toast.success("Doctor added");
+      setShowAddDoctor(false);
+      setNewDoctorName("");
+      setNewDoctorSpecialty("");
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setAddingDoctor(false);
+    }
   };
 
   return (
@@ -282,6 +308,60 @@ export function UserManagementTab() {
           ))}
         </div>
       )}
+
+      {/* Settings / Permissions */}
+      <div className="pt-6 border-t mt-8">
+        <h3 className="text-lg font-bold flex items-center gap-2 mb-4"><Settings2 className="h-5 w-5" /> Global Settings & Permissions</h3>
+        <Card className="p-5 flex items-center justify-between">
+          <div>
+            <h4 className="font-semibold flex items-center gap-2">Allow Pharmacists to Transfer Stock</h4>
+            <p className="text-sm text-muted-foreground mt-1">If enabled, pharmacists can move stock from main inventory to pharmacy.</p>
+          </div>
+          <Button
+            variant={canTransfer ? "default" : "secondary"}
+            onClick={() => updateSetting("allow_pharmacist_transfer", canTransfer ? "false" : "true")}
+          >
+            {canTransfer ? <Lock className="h-4 w-4 mr-2" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
+            {canTransfer ? "Disable Transfer" : "Enable Transfer"}
+          </Button>
+        </Card>
+      </div>
+
+      {/* Doctor Management */}
+      <div className="pt-6 border-t mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-bold flex items-center gap-2"><Stethoscope className="h-5 w-5" /> Doctor Management</h3>
+            <p className="text-sm text-muted-foreground mt-0.5">Manage doctors available in prescription dispensing</p>
+          </div>
+          <Button size="sm" onClick={() => setShowAddDoctor(true)}>
+            <UserPlus className="h-4 w-4 mr-1.5" /> Add Doctor
+          </Button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {doctors.map(d => (
+            <Card key={d.id} className="p-4 flex items-center justify-between">
+              <div>
+                <div className="font-semibold">{d.name}</div>
+                <div className="text-xs text-muted-foreground">{d.specialty || "No specialty"}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => toggleDoctor(d.id, !d.active)}>
+                  {d.active ? "Active" : "Inactive"}
+                </Button>
+                <Button variant="destructive" size="icon" className="h-8 w-8" onClick={() => deleteDoctor(d.id)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </Card>
+          ))}
+          {doctors.length === 0 && (
+            <div className="col-span-full text-center py-6 text-muted-foreground text-sm border rounded-xl border-dashed">
+              No doctors configured
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Create User Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
@@ -380,6 +460,30 @@ export function UserManagementTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* Add Doctor Dialog */}
+      <Dialog open={showAddDoctor} onOpenChange={setShowAddDoctor}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Doctor</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Doctor Name</Label>
+              <Input value={newDoctorName} onChange={e => setNewDoctorName(e.target.value)} placeholder="Dr. Smith" className="h-10 mt-1" />
+            </div>
+            <div>
+              <Label>Specialty (Optional)</Label>
+              <Input value={newDoctorSpecialty} onChange={e => setNewDoctorSpecialty(e.target.value)} placeholder="Cardiology" className="h-10 mt-1" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDoctor(false)}>Cancel</Button>
+            <Button onClick={handleAddDoctor} disabled={addingDoctor}>
+              {addingDoctor ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null} Add Doctor
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

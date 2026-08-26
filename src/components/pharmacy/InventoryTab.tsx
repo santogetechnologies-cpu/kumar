@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { usePharmacy } from "@/lib/pharmacy-store";
+import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Package, FlaskConical, ShoppingCart, GitBranch, Calendar, AlertTriangle, LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { InvoiceDialog, type InvoiceRow, type InvoiceMeta, rowTaxable, rowGst } from "./InvoiceDialog";
+import { BulkUploadDialog } from "./BulkUploadDialog";
 
 type SubTab = "dashboard" | "medicines" | "materials" | "purchases" | "branches" | "movements" | "expiry" | "lowstock";
 
@@ -102,6 +104,7 @@ function MedicinesMgmt() {
   const { medicines, addMedicine, deleteMedicine } = usePharmacy();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const filtered = medicines.filter((m) => m.name.toLowerCase().includes(q.toLowerCase()));
 
@@ -126,8 +129,12 @@ function MedicinesMgmt() {
     <Card className="p-5">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h2 className="text-lg font-semibold">Medicine Management</h2>
-        <Button onClick={() => setOpen(true)} disabled={saving}><FileText className="h-4 w-4 mr-1.5" /> {saving ? "Saving…" : "Add via Invoice"}</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setBulkOpen(true)} disabled={saving}>Bulk Upload CSV</Button>
+          <Button onClick={() => setOpen(true)} disabled={saving}><FileText className="h-4 w-4 mr-1.5" /> {saving ? "Saving…" : "Add via Invoice"}</Button>
+        </div>
         <InvoiceDialog open={open} onOpenChange={setOpen} title="Medicine Purchase Invoice" onSave={handleSave} existingProducts={medicines.map(m => m.name)} />
+        <BulkUploadDialog open={bulkOpen} onOpenChange={setBulkOpen} type="medicine" />
       </div>
       <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -142,6 +149,7 @@ function MaterialsMgmt() {
   const { materials, addMaterial, deleteMaterial } = usePharmacy();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const filtered = materials.filter((m) => m.name.toLowerCase().includes(q.toLowerCase()));
 
@@ -166,8 +174,12 @@ function MaterialsMgmt() {
     <Card className="p-5">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h2 className="text-lg font-semibold">Service Materials Management</h2>
-        <Button onClick={() => setOpen(true)} disabled={saving}><FileText className="h-4 w-4 mr-1.5" /> {saving ? "Saving…" : "Add via Invoice"}</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setBulkOpen(true)} disabled={saving}>Bulk Upload CSV</Button>
+          <Button onClick={() => setOpen(true)} disabled={saving}><FileText className="h-4 w-4 mr-1.5" /> {saving ? "Saving…" : "Add via Invoice"}</Button>
+        </div>
         <InvoiceDialog open={open} onOpenChange={setOpen} title="Material Purchase Invoice" onSave={handleSave} existingProducts={materials.map(m => m.name)} />
+        <BulkUploadDialog open={bulkOpen} onOpenChange={setBulkOpen} type="material" />
       </div>
       <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -180,9 +192,13 @@ function MaterialsMgmt() {
 
 
 function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: string) => void, type: "medicine" | "material" }) {
-  const { transferStock } = usePharmacy();
+  const { transferStock, canTransfer } = usePharmacy();
+  const { user } = useAuth();
   const [transferId, setTransferId] = useState<string | null>(null);
   const [transferAmount, setTransferAmount] = useState<number>(0);
+
+  const isPharmacist = user?.user_metadata?.role === "pharmacist" || user?.role === "pharmacist";
+  const showTransfer = !isPharmacist || canTransfer;
 
   const handleTransfer = () => {
     if (!transferId || transferAmount <= 0) return;
@@ -223,12 +239,20 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
                 <td className="px-3 py-2.5">₹{r.price}</td>
                 <td className="px-3 py-2.5">{r.supplier || "-"}</td>
                 <td className="px-3 py-2.5 flex items-center gap-1">
-                  <Button variant="outline" size="sm" onClick={() => setTransferId(r.id)}>
-                    <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Transfer
-                  </Button>
-                  <Button variant="destructive" size="icon" className="h-8 w-8" onClick={() => onDelete(r.id)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {showTransfer ? (
+                    <Button variant="outline" size="sm" onClick={() => setTransferId(r.id)}>
+                      <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Transfer
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="sm" disabled title="Transfer disabled by Admin">
+                      <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Locked
+                    </Button>
+                  )}
+                  {!isPharmacist && (
+                    <Button variant="destructive" size="icon" className="h-8 w-8" onClick={() => onDelete(r.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </td>
               </tr>
             ))}
