@@ -102,24 +102,32 @@ function MedicinesMgmt() {
   const { medicines, addMedicine, deleteMedicine } = usePharmacy();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const filtered = medicines.filter((m) => m.name.toLowerCase().includes(q.toLowerCase()));
 
-  const handleSave = (rows: InvoiceRow[], meta: InvoiceMeta) => {
-    rows.forEach((r) => {
-      addMedicine({
-        name: r.product, category: "Tablet", batch: r.batch, expiry: r.exp,
-        mainQuantity: r.qty + r.free, pharmacyQuantity: 0, minLevel: 10, price: r.mrp || r.ptr, supplier: meta.supplier,
-      });
-    });
-    toast.success(`Invoice saved · ${rows.length} medicine${rows.length > 1 ? "s" : ""} added`);
+  const handleSave = async (rows: InvoiceRow[], meta: InvoiceMeta) => {
+    setSaving(true);
+    try {
+      for (const r of rows) {
+        await addMedicine({
+          name: r.product, category: "Tablet", batch: r.batch, expiry: r.exp,
+          mainQuantity: r.qty + r.free, pharmacyQuantity: 0, minLevel: 10, price: r.mrp || r.ptr, supplier: meta.supplier,
+        });
+      }
+      toast.success(`Invoice saved · ${rows.length} medicine${rows.length > 1 ? "s" : ""} added`);
+    } catch (e: any) {
+      toast.error("Failed to save: " + e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h2 className="text-lg font-semibold">Medicine Management</h2>
-        <Button onClick={() => setOpen(true)}><FileText className="h-4 w-4 mr-1.5" /> Add Medicine</Button>
-        <InvoiceDialog open={open} onOpenChange={setOpen} title="Medicine Purchase Invoice" onSave={handleSave} />
+        <Button onClick={() => setOpen(true)} disabled={saving}><FileText className="h-4 w-4 mr-1.5" /> {saving ? "Saving…" : "Add via Invoice"}</Button>
+        <InvoiceDialog open={open} onOpenChange={setOpen} title="Medicine Purchase Invoice" onSave={handleSave} existingProducts={medicines.map(m => m.name)} />
       </div>
       <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -134,24 +142,32 @@ function MaterialsMgmt() {
   const { materials, addMaterial, deleteMaterial } = usePharmacy();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const filtered = materials.filter((m) => m.name.toLowerCase().includes(q.toLowerCase()));
 
-  const handleSave = (rows: InvoiceRow[], meta: InvoiceMeta) => {
-    rows.forEach((r) => {
-      addMaterial({
-        name: r.product, category: "Surgical", batch: r.batch, expiry: r.exp,
-        mainQuantity: r.qty + r.free, pharmacyQuantity: 0, minLevel: 10, price: r.mrp || r.ptr, supplier: meta.supplier,
-      });
-    });
-    toast.success(`Invoice saved · ${rows.length} material${rows.length > 1 ? "s" : ""} added`);
+  const handleSave = async (rows: InvoiceRow[], meta: InvoiceMeta) => {
+    setSaving(true);
+    try {
+      for (const r of rows) {
+        await addMaterial({
+          name: r.product, category: "Surgical", batch: r.batch, expiry: r.exp,
+          mainQuantity: r.qty + r.free, pharmacyQuantity: 0, minLevel: 10, price: r.mrp || r.ptr, supplier: meta.supplier,
+        });
+      }
+      toast.success(`Invoice saved · ${rows.length} material${rows.length > 1 ? "s" : ""} added`);
+    } catch (e: any) {
+      toast.error("Failed to save: " + e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h2 className="text-lg font-semibold">Service Materials Management</h2>
-        <Button onClick={() => setOpen(true)}><FileText className="h-4 w-4 mr-1.5" /> Add Material</Button>
-        <InvoiceDialog open={open} onOpenChange={setOpen} title="Material Purchase Invoice" onSave={handleSave} />
+        <Button onClick={() => setOpen(true)} disabled={saving}><FileText className="h-4 w-4 mr-1.5" /> {saving ? "Saving…" : "Add via Invoice"}</Button>
+        <InvoiceDialog open={open} onOpenChange={setOpen} title="Material Purchase Invoice" onSave={handleSave} existingProducts={materials.map(m => m.name)} />
       </div>
       <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -241,23 +257,32 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
 }
 
 function PurchasesMgmt() {
-  const { purchases, addPurchase, updatePurchaseStatus } = usePharmacy();
+  const { medicines, materials, purchases, addPurchase, updatePurchaseStatus } = usePharmacy();
   const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const allProducts = [...medicines.map(m => m.name), ...materials.map(m => m.name)];
 
-  const handleSave = (rows: InvoiceRow[], meta: InvoiceMeta) => {
-    rows.forEach((r) => {
-      const cost = rowTaxable(r) + rowGst(r);
-      addPurchase({ item: r.product, supplier: meta.supplier, quantity: r.qty, received: 0, cost: +cost.toFixed(2), status: "pending" });
-    });
-    toast.success(`Purchase order created · ${rows.length} line${rows.length > 1 ? "s" : ""}`);
+  const handleSave = async (rows: InvoiceRow[], meta: InvoiceMeta) => {
+    setSaving(true);
+    try {
+      for (const r of rows) {
+        const cost = rowTaxable(r) + rowGst(r);
+        await addPurchase({ item: r.product, supplier: meta.supplier, quantity: r.qty, received: 0, cost: +cost.toFixed(2), status: "pending" });
+      }
+      toast.success(`Purchase order created · ${rows.length} line${rows.length > 1 ? "s" : ""}`);
+    } catch (e: any) {
+      toast.error("Failed: " + e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Purchase Management</h2>
-        <Button onClick={() => setOpen(true)}><FileText className="h-4 w-4 mr-1.5" /> Create Purchase Order</Button>
-        <InvoiceDialog open={open} onOpenChange={setOpen} title="Tax Invoice Entry (Purchase Order)" onSave={handleSave} existingProducts={medicines.map(m => m.name)} />
+        <Button onClick={() => setOpen(true)} disabled={saving}><FileText className="h-4 w-4 mr-1.5" /> Create Purchase Order</Button>
+        <InvoiceDialog open={open} onOpenChange={setOpen} title="Purchase Order Invoice" onSave={handleSave} existingProducts={allProducts} restrictToExisting={allProducts.length > 0} />
       </div>
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">

@@ -3,14 +3,26 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Plus, Trash2, Calculator } from "lucide-react";
+import { Plus, Trash2, Calculator, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 export interface InvoiceRow {
   product: string;
   hsn: string;
   batch: string;
-  exp: string; // Expiry
+  exp: string;
   mrp: number;
   ptr: number;
   qty: number;
@@ -48,9 +60,80 @@ interface Props {
   title: string;
   onSave: (rows: InvoiceRow[], meta: InvoiceMeta) => void;
   existingProducts?: string[];
+  /** If true, product must be selected from existingProducts only */
+  restrictToExisting?: boolean;
 }
 
-export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProducts }: Props) {
+function ProductCell({
+  value,
+  onChange,
+  existingProducts,
+  restrictToExisting,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  existingProducts?: string[];
+  restrictToExisting?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  if (restrictToExisting && existingProducts && existingProducts.length > 0) {
+    const filtered = existingProducts.filter((p) =>
+      p.toLowerCase().includes(search.toLowerCase())
+    );
+    return (
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            className="flex h-8 w-[180px] items-center justify-between rounded-md border border-input bg-background px-3 py-1 text-sm hover:bg-accent"
+          >
+            <span className="truncate">{value || "Select product…"}</span>
+            <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[220px] p-0" align="start">
+          <Command>
+            <CommandInput
+              placeholder="Search…"
+              value={search}
+              onValueChange={setSearch}
+            />
+            <CommandEmpty>No product found.</CommandEmpty>
+            <CommandGroup className="max-h-48 overflow-auto">
+              {filtered.map((p) => (
+                <CommandItem
+                  key={p}
+                  value={p}
+                  onSelect={() => {
+                    onChange(p);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                >
+                  {p}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
+  // Free-text with autocomplete for medicine invoices (new items)
+  return (
+    <Input
+      list="existing-products-list"
+      className="h-8 min-w-[160px]"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="Product name"
+    />
+  );
+}
+
+export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProducts, restrictToExisting }: Props) {
   const [meta, setMeta] = useState<InvoiceMeta>({
     supplier: "", invoiceNo: "",
     invoiceDate: new Date().toISOString().slice(0, 10),
@@ -82,7 +165,11 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
   const submit = () => {
     if (!meta.supplier.trim()) { toast.error("Supplier is required"); return; }
     const valid = rows.filter((r) => r.product.trim() && r.batch.trim() && r.exp && (r.qty > 0 || r.free > 0));
-    if (valid.length === 0) { toast.error("Add at least one valid row (Product, Batch, Exp, Qty)"); return; }
+    if (valid.length === 0) { toast.error("Add at least one valid row (Product, Batch, Expiry, Qty)"); return; }
+    if (restrictToExisting) {
+      const invalid = valid.find((r) => existingProducts && !existingProducts.includes(r.product));
+      if (invalid) { toast.error(`"${invalid.product}" is not in the existing product list. Please select from the dropdown.`); return; }
+    }
     onSave(valid, meta);
     reset();
     onOpenChange(false);
@@ -95,6 +182,7 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
           <DialogTitle className="text-xl">{title}</DialogTitle>
         </DialogHeader>
 
+        {/* Header Meta */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <Label>Supplier <span className="text-destructive">*</span></Label>
@@ -120,17 +208,19 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
           </div>
         </div>
 
-        {existingProducts && existingProducts.length > 0 && (
-           <datalist id="existing-products">
-             {existingProducts.map(p => <option key={p} value={p} />)}
-           </datalist>
+        {/* Free-text autocomplete datalist (used when not restrictToExisting) */}
+        {existingProducts && existingProducts.length > 0 && !restrictToExisting && (
+          <datalist id="existing-products-list">
+            {existingProducts.map((p) => <option key={p} value={p} />)}
+          </datalist>
         )}
 
+        {/* Rows Table */}
         <div className="mt-4 border rounded-lg overflow-auto flex-1">
           <table className="w-full text-sm min-w-[1400px]">
             <thead className="bg-muted/60 sticky top-0">
               <tr className="text-xs text-left uppercase text-muted-foreground">
-                {["S.No","Product *","HSN","Batch *","Expiry *","MRP (per item)","PTR (per item)","Quantity (per item) *","Free (per item)","Total Qty","Taxable","Discount %","GST %","Net Amount",""].map((h) => (
+                {["S.No", "Product *", "HSN", "Batch *", "Expiry *", "MRP (per item)", "PTR (per item)", "Qty *", "Free", "Total Qty", "Taxable", "Disc %", "GST %", "Net Amount", ""].map((h) => (
                   <th key={h} className="px-2 py-2 font-semibold whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -140,7 +230,12 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
                 <tr key={i} className="border-t">
                   <td className="px-2 py-1.5 text-muted-foreground">{i + 1}</td>
                   <td className="px-1 py-1">
-                    <Input list="existing-products" className="h-8 min-w-[160px]" value={r.product} onChange={(e) => update(i, { product: e.target.value })} />
+                    <ProductCell
+                      value={r.product}
+                      onChange={(v) => update(i, { product: v })}
+                      existingProducts={existingProducts}
+                      restrictToExisting={restrictToExisting}
+                    />
                   </td>
                   <td className="px-1 py-1"><Input className="h-8 w-20" value={r.hsn} onChange={(e) => update(i, { hsn: e.target.value })} /></td>
                   <td className="px-1 py-1"><Input className="h-8 w-24" value={r.batch} onChange={(e) => update(i, { batch: e.target.value })} /></td>
@@ -165,9 +260,10 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
           </table>
         </div>
 
+        {/* Totals Row */}
         <div className="flex items-start justify-between gap-4 pt-3">
           <Button variant="outline" onClick={() => setRows((rs) => [...rs, emptyRow()])}>
-            <Plus className="h-4 w-4 mr-1.5" /> Add row
+            <Plus className="h-4 w-4 mr-1.5" /> Add Row
           </Button>
           <div className="text-sm space-y-0.5 text-right min-w-[300px]">
             <div>Subtotal: <span className="font-semibold">₹{totals.subtotal.toFixed(2)}</span></div>
@@ -175,15 +271,17 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
             <div>Taxable: ₹{totals.taxable.toFixed(2)}</div>
             <div>GST: +₹{totals.gst.toFixed(2)}</div>
             <div>Net (with GST): ₹{totals.net.toFixed(2)}</div>
-            <div>Round off: {(totals.roundOff >= 0 ? "+" : "")}₹{totals.roundOff.toFixed(2)}</div>
+            <div>Round off: {totals.roundOff >= 0 ? "+" : ""}₹{totals.roundOff.toFixed(2)}</div>
             <div className="text-lg font-bold pt-1">Bill Amount: ₹{totals.billAmount.toFixed(2)}</div>
-            <div className="text-xs text-muted-foreground pt-1">Total stock received: {totals.paidItems + totals.freeItems} items ({totals.paidItems} paid + {totals.freeItems} free)</div>
+            <div className="text-xs text-muted-foreground pt-1">
+              Total stock: {totals.paidItems + totals.freeItems} items ({totals.paidItems} paid + {totals.freeItems} free)
+            </div>
           </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-2 border-t mt-2">
           <Button variant="outline" onClick={() => { reset(); onOpenChange(false); }}>Cancel</Button>
-          <Button onClick={submit}><Calculator className="h-4 w-4 mr-1.5" /> Save</Button>
+          <Button onClick={submit}><Calculator className="h-4 w-4 mr-1.5" /> Save Invoice</Button>
         </div>
       </DialogContent>
     </Dialog>
