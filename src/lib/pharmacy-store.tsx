@@ -626,7 +626,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         deleteMaterial,
         transferStock,
         addBill,
-        refundBill,
+        refundItems,
         addPurchase,
         updatePurchaseStatus,
         addDoctor,
