@@ -1,25 +1,36 @@
--- 1. Create Profiles Table (for RBAC)
+-- ============================================================
+-- Kumar Hospital Pharmacy - Supabase Schema
+-- Run this in: Supabase Dashboard → SQL Editor → New Query
+-- ============================================================
+
+-- 1. Profiles Table (Role-Based Access Control)
 CREATE TABLE public.profiles (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   name TEXT,
+  email TEXT,
   role TEXT DEFAULT 'pharmacist' CHECK (role IN ('admin', 'pharmacist')),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
-
--- Enable RLS for profiles
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public profiles are viewable by everyone" ON profiles FOR SELECT USING (true);
+CREATE POLICY "Profiles viewable by authenticated users" ON profiles FOR SELECT USING (auth.role() = 'authenticated');
 CREATE POLICY "Users can insert their own profile" ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
 CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Admin can update any profile" ON profiles FOR UPDATE USING (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
+);
 
--- Trigger to automatically create a profile on signup
--- By default, we will assign 'admin' to the first user or based on the request "ANYONE LOGINS VIA SUPABASE AUTH DIRECTLY IS SER ADMIN". 
--- To achieve this, we can set the default role to 'admin' for now, and later when an admin creates a pharmacist, they will explicitly set the role.
-CREATE OR REPLACE FUNCTION public.handle_new_user() 
+-- Trigger: auto-create profile on signup, default role = 'admin'
+-- (Direct signups are treated as admin; admin creates pharmacists via UI)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, name, role)
-  VALUES (new.id, new.raw_user_meta_data->>'full_name', 'admin');
+  INSERT INTO public.profiles (id, name, email, role)
+  VALUES (
+    new.id,
+    new.raw_user_meta_data->>'full_name',
+    new.email,
+    'admin'
+  );
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -28,7 +39,7 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- 2. Create Medicines Table
+-- 2. Medicines Table
 CREATE TABLE public.medicines (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
@@ -43,9 +54,9 @@ CREATE TABLE public.medicines (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.medicines ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow authenticated full access to medicines" ON medicines FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated access to medicines" ON medicines FOR ALL USING (auth.role() = 'authenticated');
 
--- 3. Create Materials Table
+-- 3. Materials Table
 CREATE TABLE public.materials (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   name TEXT NOT NULL,
@@ -60,11 +71,11 @@ CREATE TABLE public.materials (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.materials ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow authenticated full access to materials" ON materials FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated access to materials" ON materials FOR ALL USING (auth.role() = 'authenticated');
 
--- 4. Create Bills and Bill Items
+-- 4. Bills
 CREATE TABLE public.bills (
-  id TEXT PRIMARY KEY, -- Keeping text as it looks like "B10001" format
+  id TEXT PRIMARY KEY,
   patient_name TEXT NOT NULL,
   patient_id TEXT,
   total DECIMAL(10,2) NOT NULL,
@@ -75,8 +86,9 @@ CREATE TABLE public.bills (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.bills ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow authenticated full access to bills" ON bills FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated access to bills" ON bills FOR ALL USING (auth.role() = 'authenticated');
 
+-- 5. Bill Items
 CREATE TABLE public.bill_items (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   bill_id TEXT REFERENCES bills(id) ON DELETE CASCADE,
@@ -86,11 +98,11 @@ CREATE TABLE public.bill_items (
   price DECIMAL(10,2) NOT NULL
 );
 ALTER TABLE public.bill_items ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow authenticated full access to bill_items" ON bill_items FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated access to bill_items" ON bill_items FOR ALL USING (auth.role() = 'authenticated');
 
--- 5. Create Purchases Table
+-- 6. Purchases
 CREATE TABLE public.purchases (
-  id TEXT PRIMARY KEY, -- "PO2001" format
+  id TEXT PRIMARY KEY,
   item TEXT NOT NULL,
   supplier TEXT NOT NULL,
   quantity INTEGER NOT NULL,
@@ -100,4 +112,4 @@ CREATE TABLE public.purchases (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.purchases ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow authenticated full access to purchases" ON purchases FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated access to purchases" ON purchases FOR ALL USING (auth.role() = 'authenticated');

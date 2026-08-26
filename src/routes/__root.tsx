@@ -4,7 +4,6 @@ import {
   createRootRouteWithContext,
 } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
-import { PharmacyProvider } from "@/lib/pharmacy-store";
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: RootComponent,
@@ -30,10 +29,8 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   return (
     <QueryClientProvider client={queryClient}>
-      <PharmacyProvider>
-        <Outlet />
-        <Toaster richColors position="top-right" />
-      </PharmacyProvider>
+      <Outlet />
+      <Toaster richColors position="top-right" />
     </QueryClientProvider>
   );
 }

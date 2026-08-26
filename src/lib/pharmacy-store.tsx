@@ -1,24 +1,25 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
+import { supabase } from "./supabase";
+import { useAuth } from "./auth";
 
-export type Role = "admin" | "pharmacist";
-export interface User {
-  username: string;
-  name: string;
-  role: Role;
-}
-
+/* ---------- Types ---------- */
 export interface Medicine {
   id: string;
   name: string;
   category: string;
   batch: string;
-  expiry: string; // YYYY-MM-DD
+  expiry: string;
   mainQuantity: number;
   pharmacyQuantity: number;
   minLevel: number;
   price: number;
   supplier?: string;
-  quantity?: number; // for backward compatibility during load
 }
 
 export interface Material {
@@ -32,7 +33,6 @@ export interface Material {
   minLevel: number;
   price: number;
   supplier?: string;
-  quantity?: number; // for backward compatibility during load
 }
 
 export interface BillItem {
@@ -66,178 +66,416 @@ export interface Purchase {
   createdAt: string;
 }
 
+/* ---------- Context ---------- */
 interface PharmacyState {
-  user: User | null;
   medicines: Medicine[];
   materials: Material[];
   bills: Bill[];
   purchases: Purchase[];
-  login: (u: User) => void;
-  logout: () => void;
-  addMedicine: (m: Omit<Medicine, "id">) => void;
-  deleteMedicine: (id: string) => void;
-  addMaterial: (m: Omit<Material, "id">) => void;
-  deleteMaterial: (id: string) => void;
-  transferStock: (type: "medicine" | "material", id: string, amount: number) => void;
-  addBill: (b: Omit<Bill, "id" | "createdAt" | "createdBy">) => Bill;
-  refundBill: (id: string) => void;
-  addPurchase: (p: Omit<Purchase, "id" | "createdAt">) => void;
-  updatePurchaseStatus: (id: string, status: Purchase["status"]) => void;
+  loading: boolean;
+  addMedicine: (m: Omit<Medicine, "id">) => Promise<void>;
+  updateMedicine: (id: string, m: Partial<Medicine>) => Promise<void>;
+  deleteMedicine: (id: string) => Promise<void>;
+  addMaterial: (m: Omit<Material, "id">) => Promise<void>;
+  updateMaterial: (id: string, m: Partial<Material>) => Promise<void>;
+  deleteMaterial: (id: string) => Promise<void>;
+  transferStock: (
+    type: "medicine" | "material",
+    id: string,
+    amount: number
+  ) => Promise<void>;
+  addBill: (b: Omit<Bill, "id" | "createdAt" | "createdBy">) => Promise<Bill>;
+  refundBill: (id: string) => Promise<void>;
+  addPurchase: (p: Omit<Purchase, "id" | "createdAt">) => Promise<void>;
+  updatePurchaseStatus: (
+    id: string,
+    status: Purchase["status"]
+  ) => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const Ctx = createContext<PharmacyState | null>(null);
-const KEY = "kumar-pharmacy-v2";
 
-const seedMedicines: Medicine[] = [
-  { id: "m1", name: "PARACETAMOL 500", category: "Tablet", batch: "PC2401", expiry: "2027-06-01", mainQuantity: 200, pharmacyQuantity: 40, minLevel: 50, price: 2.5, supplier: "MediSup" },
-  { id: "m2", name: "AMOXICILLIN 250", category: "Capsule", batch: "AM2312", expiry: "2026-11-15", mainQuantity: 10, pharmacyQuantity: 8, minLevel: 30, price: 8, supplier: "PharmaCo" },
-  { id: "m3", name: "AZITHROMYCIN 500", category: "Tablet", batch: "AZ2405", expiry: "2027-01-20", mainQuantity: 50, pharmacyQuantity: 12, minLevel: 40, price: 22, supplier: "PharmaCo" },
-  { id: "m4", name: "CETIRIZINE 10", category: "Tablet", batch: "CT2402", expiry: "2027-03-10", mainQuantity: 0, pharmacyQuantity: 5, minLevel: 25, price: 1.8, supplier: "MediSup" },
-  { id: "m5", name: "IBUPROFEN 400", category: "Tablet", batch: "IB2311", expiry: "2026-08-30", mainQuantity: 100, pharmacyQuantity: 30, minLevel: 40, price: 3.2 },
-  { id: "m6", name: "OMEPRAZOLE 20", category: "Capsule", batch: "OM2403", expiry: "2027-05-12", mainQuantity: 68, pharmacyQuantity: 20, minLevel: 30, price: 4.5 },
-  { id: "m7", name: "COUGH SYRUP 100ML", category: "Syrup", batch: "CS2401", expiry: "2026-09-05", mainQuantity: 12, pharmacyQuantity: 10, minLevel: 15, price: 65 },
-  { id: "m8", name: "INSULIN 10ML", category: "Injection", batch: "IN2404", expiry: "2026-12-01", mainQuantity: 10, pharmacyQuantity: 2, minLevel: 10, price: 320 },
-];
-
-const seedMaterials: Material[] = [
-  { id: "mt1", name: "10 ML SYRINGE", category: "Hypodermic", batch: "SY2401", expiry: "2028-01-01", mainQuantity: 54, pharmacyQuantity: 40, minLevel: 20, price: 14.3 },
-  { id: "mt2", name: "COTTON ROLL", category: "Dressing", batch: "CR2311", expiry: "2029-04-10", mainQuantity: 30, pharmacyQuantity: 10, minLevel: 15, price: 45 },
-  { id: "mt3", name: "SURGICAL GLOVES M", category: "Surgical", batch: "GL2405", expiry: "2027-08-01", mainQuantity: 0, pharmacyQuantity: 8, minLevel: 20, price: 12 },
-  { id: "mt4", name: "3M MICROPORE TAPE", category: "Dressing", batch: "MP2402", expiry: "2028-06-15", mainQuantity: 40, pharmacyQuantity: 15, minLevel: 15, price: 38 },
-  { id: "mt5", name: "IV CANNULA 20G", category: "Surgical", batch: "IV2312", expiry: "2027-11-30", mainQuantity: 20, pharmacyQuantity: 10, minLevel: 12, price: 28 },
-];
-
-const seedBills: Bill[] = [
-  {
-    id: "B10001", patientName: "MR. RAJESH", patientId: "P1001",
-    items: [{ medicineId: "m1", name: "PARACETAMOL 500", quantity: 10, price: 2.5 }],
-    total: 25, discountPct: 0, status: "paid", paymentMethod: "Cash",
-    createdAt: new Date(Date.now() - 86400000).toISOString(), createdBy: "aswin",
-  },
-  {
-    id: "B10002", patientName: "MRS. LATHA", patientId: "P1002",
-    items: [{ medicineId: "m3", name: "AZITHROMYCIN 500", quantity: 6, price: 22 }],
-    total: 132, discountPct: 0, status: "paid", paymentMethod: "UPI",
-    createdAt: new Date(Date.now() - 43200000).toISOString(), createdBy: "aswin",
-  },
-];
-
-const seedPurchases: Purchase[] = [
-  { id: "PO2001", item: "PARACETAMOL 500", supplier: "MediSup", quantity: 500, received: 500, cost: 1200, status: "received", createdAt: new Date().toISOString() },
-  { id: "PO2002", item: "AMOXICILLIN 250", supplier: "PharmaCo", quantity: 200, received: 0, cost: 1600, status: "pending", createdAt: new Date().toISOString() },
-];
-
-interface Persisted {
-  user: User | null;
-  medicines: Medicine[];
-  materials: Material[];
-  bills: Bill[];
-  purchases: Purchase[];
+/* ---------- Helpers: DB row → app model ---------- */
+function rowToMedicine(r: any): Medicine {
+  return {
+    id: r.id,
+    name: r.name,
+    category: r.category,
+    batch: r.batch,
+    expiry: r.expiry,
+    mainQuantity: r.main_quantity,
+    pharmacyQuantity: r.pharmacy_quantity,
+    minLevel: r.min_level,
+    price: r.price,
+    supplier: r.supplier ?? undefined,
+  };
 }
 
-function load(): Persisted {
-  if (typeof window === "undefined") {
-    return { user: null, medicines: seedMedicines, materials: seedMaterials, bills: seedBills, purchases: seedPurchases };
-  }
-  try {
-    const raw = localStorage.getItem(KEY) || localStorage.getItem("kumar-pharmacy-v1");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      // Migration logic
-      parsed.medicines = (parsed.medicines || []).map((m: any) => {
-        if (m.quantity !== undefined && m.mainQuantity === undefined) {
-          m.mainQuantity = m.quantity;
-          m.pharmacyQuantity = 0;
-          delete m.quantity;
-        }
-        return m;
-      });
-      parsed.materials = (parsed.materials || []).map((m: any) => {
-        if (m.quantity !== undefined && m.mainQuantity === undefined) {
-          m.mainQuantity = m.quantity;
-          m.pharmacyQuantity = 0;
-          delete m.quantity;
-        }
-        return m;
-      });
-      return parsed;
-    }
-  } catch {}
-  return { user: null, medicines: seedMedicines, materials: seedMaterials, bills: seedBills, purchases: seedPurchases };
+function rowToMaterial(r: any): Material {
+  return {
+    id: r.id,
+    name: r.name,
+    category: r.category,
+    batch: r.batch,
+    expiry: r.expiry,
+    mainQuantity: r.main_quantity,
+    pharmacyQuantity: r.pharmacy_quantity,
+    minLevel: r.min_level,
+    price: r.price,
+    supplier: r.supplier ?? undefined,
+  };
 }
 
-export function PharmacyProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<Persisted>(() => ({
-    user: null, medicines: seedMedicines, materials: seedMaterials, bills: seedBills, purchases: seedPurchases,
+async function fetchBills(): Promise<Bill[]> {
+  const { data: billRows, error } = await supabase
+    .from("bills")
+    .select("*, bill_items(*)")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  return (billRows ?? []).map((b: any) => ({
+    id: b.id,
+    patientName: b.patient_name,
+    patientId: b.patient_id ?? "",
+    total: b.total,
+    discountPct: b.discount_pct ?? 0,
+    status: b.status,
+    paymentMethod: b.payment_method ?? "",
+    createdAt: b.created_at,
+    createdBy: b.created_by ?? "",
+    items: (b.bill_items ?? []).map((it: any) => ({
+      medicineId: it.medicine_id ?? "",
+      name: it.name,
+      quantity: it.quantity,
+      price: it.price,
+    })),
   }));
-  const [hydrated, setHydrated] = useState(false);
+}
 
-  useEffect(() => {
-    setState(load());
-    setHydrated(true);
-  }, []);
+/* ---------- Provider ---------- */
+export function PharmacyProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [bills, setBills] = useState<Bill[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (hydrated) localStorage.setItem(KEY, JSON.stringify(state));
-  }, [state, hydrated]);
-
-  const update = (patch: Partial<Persisted>) => setState((s) => ({ ...s, ...patch }));
-
-  const value: PharmacyState = {
-    ...state,
-    login: (u) => update({ user: u }),
-    logout: () => update({ user: null }),
-    addMedicine: (m) => setState((s) => ({ ...s, medicines: [{ ...m, id: "m" + Date.now() }, ...s.medicines] })),
-    deleteMedicine: (id) => setState((s) => ({ ...s, medicines: s.medicines.filter((x) => x.id !== id) })),
-    addMaterial: (m) => setState((s) => ({ ...s, materials: [{ ...m, id: "mt" + Date.now() }, ...s.materials] })),
-    deleteMaterial: (id) => setState((s) => ({ ...s, materials: s.materials.filter((x) => x.id !== id) })),
-    transferStock: (type, id, amount) => setState((s) => {
-      if (type === "medicine") {
-        return {
-          ...s,
-          medicines: s.medicines.map((m) => m.id === id ? { ...m, mainQuantity: m.mainQuantity - amount, pharmacyQuantity: m.pharmacyQuantity + amount } : m),
-        };
-      } else {
-        return {
-          ...s,
-          materials: s.materials.map((m) => m.id === id ? { ...m, mainQuantity: m.mainQuantity - amount, pharmacyQuantity: m.pharmacyQuantity + amount } : m),
-        };
-      }
-    }),
-    addBill: (b) => {
-      const bill: Bill = {
-        ...b,
-        id: "B" + (10000 + Math.floor(Math.random() * 90000)),
-        createdAt: new Date().toISOString(),
-        createdBy: state.user?.username ?? "unknown",
-      };
-      setState((s) => ({
-        ...s,
-        bills: [bill, ...s.bills],
-        medicines: s.medicines.map((m) => {
-          const it = b.items.find((i) => i.medicineId === m.id);
-          return it ? { ...m, pharmacyQuantity: Math.max(0, m.pharmacyQuantity - it.quantity) } : m;
-        }),
-      }));
-      return bill;
-    },
-    refundBill: (id) => setState((s) => {
-      const bill = s.bills.find((x) => x.id === id);
-      if (!bill || bill.status === "refunded") return s;
-      return {
-        ...s,
-        bills: s.bills.map((x) => x.id === id ? { ...x, status: "refunded" } : x),
-        medicines: s.medicines.map((m) => {
-          const it = bill.items.find((i) => i.medicineId === m.id);
-          return it ? { ...m, pharmacyQuantity: m.pharmacyQuantity + it.quantity } : m;
-        }),
-      };
-    }),
-    addPurchase: (p) => setState((s) => ({ ...s, purchases: [{ ...p, id: "PO" + Date.now(), createdAt: new Date().toISOString() }, ...s.purchases] })),
-    updatePurchaseStatus: (id, status) => setState((s) => ({ ...s, purchases: s.purchases.map((p) => p.id === id ? { ...p, status } : p) })),
+  const loadAll = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const [medRes, matRes, purRes] = await Promise.all([
+        supabase.from("medicines").select("*").order("name"),
+        supabase.from("materials").select("*").order("name"),
+        supabase.from("purchases").select("*").order("created_at", { ascending: false }),
+      ]);
+      setMedicines((medRes.data ?? []).map(rowToMedicine));
+      setMaterials((matRes.data ?? []).map(rowToMaterial));
+      setBills(await fetchBills());
+      setPurchases(
+        (purRes.data ?? []).map((p: any) => ({
+          id: p.id,
+          item: p.item,
+          supplier: p.supplier,
+          quantity: p.quantity,
+          received: p.received,
+          cost: p.cost,
+          status: p.status,
+          createdAt: p.created_at,
+        }))
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  useEffect(() => {
+    loadAll();
+  }, [user]);
+
+  /* --- Medicines --- */
+  const addMedicine = async (m: Omit<Medicine, "id">) => {
+    const { data, error } = await supabase
+      .from("medicines")
+      .insert({
+        name: m.name,
+        category: m.category,
+        batch: m.batch,
+        expiry: m.expiry,
+        main_quantity: m.mainQuantity,
+        pharmacy_quantity: m.pharmacyQuantity,
+        min_level: m.minLevel,
+        price: m.price,
+        supplier: m.supplier,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    setMedicines((prev) => [rowToMedicine(data), ...prev]);
+  };
+
+  const updateMedicine = async (id: string, m: Partial<Medicine>) => {
+    const update: any = {};
+    if (m.name !== undefined) update.name = m.name;
+    if (m.category !== undefined) update.category = m.category;
+    if (m.batch !== undefined) update.batch = m.batch;
+    if (m.expiry !== undefined) update.expiry = m.expiry;
+    if (m.mainQuantity !== undefined) update.main_quantity = m.mainQuantity;
+    if (m.pharmacyQuantity !== undefined) update.pharmacy_quantity = m.pharmacyQuantity;
+    if (m.minLevel !== undefined) update.min_level = m.minLevel;
+    if (m.price !== undefined) update.price = m.price;
+    if (m.supplier !== undefined) update.supplier = m.supplier;
+    const { data, error } = await supabase
+      .from("medicines")
+      .update(update)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    setMedicines((prev) => prev.map((x) => (x.id === id ? rowToMedicine(data) : x)));
+  };
+
+  const deleteMedicine = async (id: string) => {
+    const { error } = await supabase.from("medicines").delete().eq("id", id);
+    if (error) throw error;
+    setMedicines((prev) => prev.filter((x) => x.id !== id));
+  };
+
+  /* --- Materials --- */
+  const addMaterial = async (m: Omit<Material, "id">) => {
+    const { data, error } = await supabase
+      .from("materials")
+      .insert({
+        name: m.name,
+        category: m.category,
+        batch: m.batch,
+        expiry: m.expiry,
+        main_quantity: m.mainQuantity,
+        pharmacy_quantity: m.pharmacyQuantity,
+        min_level: m.minLevel,
+        price: m.price,
+        supplier: m.supplier,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    setMaterials((prev) => [rowToMaterial(data), ...prev]);
+  };
+
+  const updateMaterial = async (id: string, m: Partial<Material>) => {
+    const update: any = {};
+    if (m.name !== undefined) update.name = m.name;
+    if (m.category !== undefined) update.category = m.category;
+    if (m.batch !== undefined) update.batch = m.batch;
+    if (m.expiry !== undefined) update.expiry = m.expiry;
+    if (m.mainQuantity !== undefined) update.main_quantity = m.mainQuantity;
+    if (m.pharmacyQuantity !== undefined) update.pharmacy_quantity = m.pharmacyQuantity;
+    if (m.minLevel !== undefined) update.min_level = m.minLevel;
+    if (m.price !== undefined) update.price = m.price;
+    if (m.supplier !== undefined) update.supplier = m.supplier;
+    const { data, error } = await supabase
+      .from("materials")
+      .update(update)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    setMaterials((prev) => prev.map((x) => (x.id === id ? rowToMaterial(data) : x)));
+  };
+
+  const deleteMaterial = async (id: string) => {
+    const { error } = await supabase.from("materials").delete().eq("id", id);
+    if (error) throw error;
+    setMaterials((prev) => prev.filter((x) => x.id !== id));
+  };
+
+  /* --- Stock Transfer --- */
+  const transferStock = async (
+    type: "medicine" | "material",
+    id: string,
+    amount: number
+  ) => {
+    const table = type === "medicine" ? "medicines" : "materials";
+    const items = type === "medicine" ? medicines : materials;
+    const item = items.find((x) => x.id === id);
+    if (!item) return;
+    const { error } = await supabase
+      .from(table)
+      .update({
+        main_quantity: item.mainQuantity - amount,
+        pharmacy_quantity: item.pharmacyQuantity + amount,
+      })
+      .eq("id", id);
+    if (error) throw error;
+    if (type === "medicine") {
+      setMedicines((prev) =>
+        prev.map((x) =>
+          x.id === id
+            ? { ...x, mainQuantity: x.mainQuantity - amount, pharmacyQuantity: x.pharmacyQuantity + amount }
+            : x
+        )
+      );
+    } else {
+      setMaterials((prev) =>
+        prev.map((x) =>
+          x.id === id
+            ? { ...x, mainQuantity: x.mainQuantity - amount, pharmacyQuantity: x.pharmacyQuantity + amount }
+            : x
+        )
+      );
+    }
+  };
+
+  /* --- Bills --- */
+  const addBill = async (
+    b: Omit<Bill, "id" | "createdAt" | "createdBy">
+  ): Promise<Bill> => {
+    const billId = "B" + (10000 + Math.floor(Math.random() * 90000));
+    const createdBy = user?.email ?? "unknown";
+
+    const { error: billError } = await supabase.from("bills").insert({
+      id: billId,
+      patient_name: b.patientName,
+      patient_id: b.patientId,
+      total: b.total,
+      discount_pct: b.discountPct,
+      status: b.status,
+      payment_method: b.paymentMethod,
+      created_by: createdBy,
+    });
+    if (billError) throw billError;
+
+    // Insert bill items
+    if (b.items.length > 0) {
+      const { error: itemsError } = await supabase.from("bill_items").insert(
+        b.items.map((it) => ({
+          bill_id: billId,
+          medicine_id: it.medicineId || null,
+          name: it.name,
+          quantity: it.quantity,
+          price: it.price,
+        }))
+      );
+      if (itemsError) throw itemsError;
+    }
+
+    // Deduct pharmacy stock
+    for (const it of b.items) {
+      if (!it.medicineId) continue;
+      const med = medicines.find((x) => x.id === it.medicineId);
+      if (!med) continue;
+      await supabase
+        .from("medicines")
+        .update({ pharmacy_quantity: Math.max(0, med.pharmacyQuantity - it.quantity) })
+        .eq("id", it.medicineId);
+    }
+
+    const newBill: Bill = {
+      ...b,
+      id: billId,
+      createdAt: new Date().toISOString(),
+      createdBy,
+    };
+    setBills((prev) => [newBill, ...prev]);
+    setMedicines((prev) =>
+      prev.map((m) => {
+        const it = b.items.find((i) => i.medicineId === m.id);
+        return it
+          ? { ...m, pharmacyQuantity: Math.max(0, m.pharmacyQuantity - it.quantity) }
+          : m;
+      })
+    );
+    return newBill;
+  };
+
+  const refundBill = async (id: string) => {
+    const bill = bills.find((x) => x.id === id);
+    if (!bill || bill.status === "refunded") return;
+    const { error } = await supabase
+      .from("bills")
+      .update({ status: "refunded" })
+      .eq("id", id);
+    if (error) throw error;
+    setBills((prev) =>
+      prev.map((x) => (x.id === id ? { ...x, status: "refunded" } : x))
+    );
+    // Restore stock
+    setMedicines((prev) =>
+      prev.map((m) => {
+        const it = bill.items.find((i) => i.medicineId === m.id);
+        return it ? { ...m, pharmacyQuantity: m.pharmacyQuantity + it.quantity } : m;
+      })
+    );
+    for (const it of bill.items) {
+      if (!it.medicineId) continue;
+      const med = medicines.find((x) => x.id === it.medicineId);
+      if (!med) continue;
+      await supabase
+        .from("medicines")
+        .update({ pharmacy_quantity: med.pharmacyQuantity + it.quantity })
+        .eq("id", it.medicineId);
+    }
+  };
+
+  /* --- Purchases --- */
+  const addPurchase = async (p: Omit<Purchase, "id" | "createdAt">) => {
+    const id = "PO" + Date.now();
+    const { error } = await supabase.from("purchases").insert({
+      id,
+      item: p.item,
+      supplier: p.supplier,
+      quantity: p.quantity,
+      received: p.received,
+      cost: p.cost,
+      status: p.status,
+    });
+    if (error) throw error;
+    const newP: Purchase = { ...p, id, createdAt: new Date().toISOString() };
+    setPurchases((prev) => [newP, ...prev]);
+  };
+
+  const updatePurchaseStatus = async (
+    id: string,
+    status: Purchase["status"]
+  ) => {
+    const { error } = await supabase
+      .from("purchases")
+      .update({ status })
+      .eq("id", id);
+    if (error) throw error;
+    setPurchases((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, status } : p))
+    );
+  };
+
+  return (
+    <Ctx.Provider
+      value={{
+        medicines,
+        materials,
+        bills,
+        purchases,
+        loading,
+        addMedicine,
+        updateMedicine,
+        deleteMedicine,
+        addMaterial,
+        updateMaterial,
+        deleteMaterial,
+        transferStock,
+        addBill,
+        refundBill,
+        addPurchase,
+        updatePurchaseStatus,
+        refresh: loadAll,
+      }}
+    >
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export function usePharmacy() {

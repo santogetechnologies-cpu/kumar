@@ -1,11 +1,13 @@
 import { Button } from "@/components/ui/button";
 import { Activity, LogOut } from "lucide-react";
-import { usePharmacy } from "@/lib/pharmacy-store";
+import { useAuth } from "@/lib/auth";
 import { useNavigate } from "@tanstack/react-router";
 
 export function Header() {
-  const { user, logout } = usePharmacy();
+  const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
+
+  const displayName = user?.user_metadata?.full_name ?? user?.email ?? "";
 
   return (
     <header className="border-b bg-card sticky top-0 z-30">
@@ -16,7 +18,8 @@ export function Header() {
           </div>
           <div>
             <h1 className="text-lg sm:text-xl font-bold leading-tight">
-              <span className="text-brand-red">Kumar</span> <span className="text-brand-blue">Hospital</span>
+              <span className="text-brand-red">Kumar</span>{" "}
+              <span className="text-brand-blue">Hospital</span>
             </h1>
             <p className="text-[11px] font-semibold tracking-wider text-muted-foreground flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-success" /> PHARMACY MODULE
@@ -28,15 +31,15 @@ export function Header() {
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-background">
               <Activity className="h-4 w-4 text-success" />
               <div className="text-xs">
-                <div className="font-semibold leading-tight">{user.name}</div>
-                <div className="text-muted-foreground capitalize leading-tight">{user.role}</div>
+                <div className="font-semibold leading-tight">{displayName}</div>
+                <div className="text-muted-foreground capitalize leading-tight">{role}</div>
               </div>
             </div>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                logout();
+              onClick={async () => {
+                await signOut();
                 navigate({ to: "/login" });
               }}
             >
