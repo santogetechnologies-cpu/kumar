@@ -67,6 +67,10 @@ export interface Purchase {
   cost: number;
   status: "pending" | "received" | "cancelled";
   createdAt: string;
+  invoice_no?: string;
+  free_quantity?: number;
+  discount_amount?: number;
+  mrp?: number;
 }
 
 export interface Doctor {
@@ -214,7 +218,8 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       setBills(await fetchBills());
       setPurchases((purRes.data ?? []).map(p => ({
         id: p.id, item: p.item, supplier: p.supplier, quantity: p.quantity,
-        received: p.received, cost: p.cost, status: p.status, createdAt: p.created_at
+        received: p.received, cost: p.cost, status: p.status, createdAt: p.created_at,
+        invoice_no: p.invoice_no, free_quantity: p.free_quantity, discount_amount: p.discount_amount, mrp: p.mrp
       })));
       setDoctors(docRes.data ?? []);
 
@@ -515,6 +520,10 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       received: p.received,
       cost: p.cost,
       status: p.status,
+      invoice_no: p.invoice_no,
+      free_quantity: p.free_quantity,
+      discount_amount: p.discount_amount,
+      mrp: p.mrp
     });
     if (error) throw error;
     const newP: Purchase = { ...p, id, createdAt: new Date().toISOString() };
@@ -525,17 +534,23 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     id: string,
     status: Purchase["status"]
   ) => {
+    const purchase = purchases.find((p) => p.id === id);
+    if (!purchase) return;
+
+    let receivedAmt = purchase.received;
+    if (status === "received") {
+      receivedAmt = purchase.quantity + (purchase.free_quantity || 0);
+    }
+
     const { error } = await supabase
       .from("purchases")
-      .update({ status })
+      .update({ status, received: receivedAmt })
       .eq("id", id);
     if (error) throw error;
 
-    const purchase = purchases.find((p) => p.id === id);
-
     // When marking as received, add quantity to main inventory
-    if (status === "received" && purchase) {
-      const qtyToAdd = purchase.quantity;
+    if (status === "received" && purchase.status !== "received") {
+      const qtyToAdd = receivedAmt;
 
       // Try medicines first (earliest expiry batch of matching name)
       const matchingMeds = medicines
@@ -575,7 +590,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     }
 
     setPurchases((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, status } : p))
+      prev.map((p) => (p.id === id ? { ...p, status, received: status === "received" ? (p.quantity + (p.free_quantity || 0)) : p.received } : p))
     );
   };
 

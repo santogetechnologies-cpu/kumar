@@ -284,6 +284,7 @@ function PurchasesMgmt() {
   const { medicines, materials, purchases, addPurchase, updatePurchaseStatus } = usePharmacy();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [q, setQ] = useState("");
   const allProducts = [...medicines.map(m => m.name), ...materials.map(m => m.name)];
 
   const handleSave = async (rows: InvoiceRow[], meta: InvoiceMeta) => {
@@ -291,7 +292,19 @@ function PurchasesMgmt() {
     try {
       for (const r of rows) {
         const cost = rowTaxable(r) + rowGst(r);
-        await addPurchase({ item: r.product, supplier: meta.supplier, quantity: r.qty, received: 0, cost: +cost.toFixed(2), status: "pending" });
+        const discountAmt = (r.ptr * r.qty * r.disPct) / 100;
+        await addPurchase({ 
+          item: r.product, 
+          supplier: meta.supplier, 
+          quantity: r.qty, 
+          received: 0, 
+          cost: +cost.toFixed(2), 
+          status: "pending",
+          invoice_no: meta.invoiceNo,
+          free_quantity: r.free,
+          discount_amount: +discountAmt.toFixed(2),
+          mrp: r.mrp
+        });
       }
       toast.success(`Purchase order created · ${rows.length} line${rows.length > 1 ? "s" : ""}`);
     } catch (e: any) {
@@ -301,34 +314,66 @@ function PurchasesMgmt() {
     }
   };
 
+  const filtered = purchases.filter(p => 
+    p.item.toLowerCase().includes(q.toLowerCase()) || 
+    p.supplier.toLowerCase().includes(q.toLowerCase()) ||
+    (p.invoice_no && p.invoice_no.toLowerCase().includes(q.toLowerCase()))
+  );
+
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Purchase Management</h2>
-        <Button onClick={() => setOpen(true)} disabled={saving}><FileText className="h-4 w-4 mr-1.5" /> Create Purchase Order</Button>
-        <InvoiceDialog open={open} onOpenChange={setOpen} title="Purchase Order Invoice" onSave={handleSave} existingProducts={allProducts} restrictToExisting={allProducts.length > 0} />
+        <h2 className="text-lg font-semibold">Purchase Orders & Invoices</h2>
+        <div className="flex gap-2">
+          <Button onClick={() => setOpen(true)} disabled={saving}><Plus className="h-4 w-4 mr-1.5" /> {saving ? "Saving…" : "New Purchase Invoice"}</Button>
+        </div>
+        <InvoiceDialog open={open} onOpenChange={setOpen} title="New Purchase Invoice" onSave={handleSave} existingProducts={allProducts} />
       </div>
+      <div className="relative mb-3">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by item, supplier, or invoice no..." className="pl-9 max-w-md" />
+      </div>
+      
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
-            <tr>{["PO Number", "Item", "Supplier", "Quantity", "Received", "Cost", "Status", "Actions"].map((h) => <th key={h} className="text-left px-3 py-2.5 font-semibold text-muted-foreground text-xs uppercase">{h}</th>)}</tr>
+            <tr>
+              {["Date", "Invoice No", "Item", "Supplier", "Qty + Free", "Received", "Cost", "MRP", "Margin/Tab", "Status", ""].map((h) => (
+                <th key={h} className="text-left px-3 py-2.5 font-semibold text-muted-foreground text-xs uppercase tracking-wide">{h}</th>
+              ))}
+            </tr>
           </thead>
           <tbody>
-            {purchases.length === 0 && <tr><td colSpan={8} className="text-center py-6 text-muted-foreground">No purchase orders</td></tr>}
-            {purchases.map((p) => (
-              <tr key={p.id} className="border-t">
-                <td className="px-3 py-2.5 font-mono">{p.id}</td>
-                <td className="px-3 py-2.5 font-semibold">{p.item}</td>
-                <td className="px-3 py-2.5">{p.supplier}</td>
-                <td className="px-3 py-2.5">{p.quantity}</td>
-                <td className="px-3 py-2.5">{p.received}</td>
-                <td className="px-3 py-2.5">₹{p.cost}</td>
-                <td className="px-3 py-2.5"><Badge variant={p.status === "received" ? "default" : p.status === "cancelled" ? "destructive" : "secondary"}>{p.status}</Badge></td>
-                <td className="px-3 py-2.5">
-                  {p.status === "pending" && <Button size="sm" variant="outline" onClick={() => updatePurchaseStatus(p.id, "received")}>Mark Received</Button>}
-                </td>
-              </tr>
-            ))}
+            {filtered.length === 0 && <tr><td colSpan={11} className="text-center py-6 text-muted-foreground">No purchases found</td></tr>}
+            {filtered.map((p) => {
+              const totalQty = p.quantity + (p.free_quantity || 0);
+              const costPerTab = totalQty > 0 ? (p.cost / totalQty) : 0;
+              const margin = p.mrp ? (p.mrp - costPerTab) : 0;
+              const marginClass = margin > 0 ? "text-success" : margin < 0 ? "text-destructive" : "";
+
+              return (
+                <tr key={p.id} className="border-t">
+                  <td className="px-3 py-2.5">{new Date(p.createdAt).toLocaleDateString()}</td>
+                  <td className="px-3 py-2.5 font-mono text-xs">{p.invoice_no || "-"}</td>
+                  <td className="px-3 py-2.5 font-semibold">{p.item}</td>
+                  <td className="px-3 py-2.5">{p.supplier}</td>
+                  <td className="px-3 py-2.5">{p.quantity} {p.free_quantity ? <span className="text-success text-xs font-semibold">(+{p.free_quantity} Free)</span> : ""}</td>
+                  <td className="px-3 py-2.5">{p.received}</td>
+                  <td className="px-3 py-2.5">₹{p.cost}</td>
+                  <td className="px-3 py-2.5">{p.mrp ? `₹${p.mrp}` : "-"}</td>
+                  <td className={`px-3 py-2.5 font-medium ${marginClass}`}>{p.mrp ? `₹${margin.toFixed(2)}` : "-"}</td>
+                  <td className="px-3 py-2.5"><Badge variant={p.status === "received" ? "default" : p.status === "cancelled" ? "destructive" : "secondary"}>{p.status}</Badge></td>
+                  <td className="px-3 py-2.5 text-right">
+                    {p.status === "pending" && (
+                      <div className="flex gap-2 justify-end">
+                        <Button variant="outline" size="sm" onClick={() => updatePurchaseStatus(p.id, "cancelled")}>Cancel</Button>
+                        <Button size="sm" onClick={() => updatePurchaseStatus(p.id, "received")}>Mark Received</Button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
