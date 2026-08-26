@@ -9,13 +9,14 @@ import { InventoryTab } from "@/components/pharmacy/InventoryTab";
 import { PaymentsTab } from "@/components/pharmacy/PaymentsTab";
 import { AnalyticsTab } from "@/components/pharmacy/AnalyticsTab";
 import { UserManagementTab } from "@/components/pharmacy/UserManagementTab";
-import { PillBottle, Undo2, Boxes, Receipt, BarChart3, Users, Loader2 } from "lucide-react";
+import { FinanceTab } from "@/components/pharmacy/FinanceTab";
+import { PillBottle, Undo2, Boxes, Receipt, BarChart3, Users, Loader2, Wallet } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
-type Tab = "dispensing" | "returns" | "inventory" | "payments" | "analytics" | "users";
+type Tab = "dispensing" | "returns" | "inventory" | "payments" | "analytics" | "users" | "finance";
 
 function HomePage() {
   const { user, role, loading } = useAuth();
@@ -47,6 +48,7 @@ function HomePage() {
 
   const TABS: { id: Tab; label: string; icon: any; adminOnly?: boolean; pharmacistOnly?: boolean }[] = [
     { id: "analytics", label: "Dashboard & Analytics", icon: BarChart3, adminOnly: true },
+    { id: "finance", label: "Finance & P&L", icon: Wallet, adminOnly: true },
     { id: "dispensing", label: "Dispensing", icon: PillBottle, pharmacistOnly: true },
     { id: "returns", label: "Returns & Refunds", icon: Undo2, pharmacistOnly: true },
     { id: "inventory", label: "Inventory", icon: Boxes },
@@ -98,6 +100,7 @@ function HomePage() {
         {tab === "inventory" && <InventoryTab />}
         {tab === "payments" && <PaymentsTab />}
         {tab === "analytics" && <AnalyticsTab />}
+        {tab === "finance" && role === "admin" && <FinanceTab />}
         {tab === "users" && role === "admin" && <UserManagementTab />}
       </main>
     </div>

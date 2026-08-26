@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell,
+  PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { TrendingUp, Package, Receipt, Sparkles, User, Send, Bot, Loader2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -296,6 +296,52 @@ export function AnalyticsTab() {
     medicines.reduce((s, m) => s + (m.mainQuantity + m.pharmacyQuantity) * m.price, 0) +
     materials.reduce((s, m) => s + (m.mainQuantity + m.pharmacyQuantity) * m.price, 0);
 
+  /* ── Revenue per unit (revenue/qty for each item) ── */
+  const revenuePerUnit = useMemo(() => {
+    return topMeds
+      .filter(m => m.qty > 0)
+      .map(m => ({
+        name: m.name.length > 14 ? m.name.slice(0, 14) + "…" : m.name,
+        revenuePerUnit: +(m.revenue / m.qty).toFixed(2),
+        totalRevenue: +m.revenue.toFixed(2),
+        qty: m.qty,
+      }))
+      .sort((a, b) => b.revenuePerUnit - a.revenuePerUnit)
+      .slice(0, 10);
+  }, [topMeds]);
+
+  /* ── Doctor → Medicine matrix (which doctor prescribes which medicines) ── */
+  const doctorMedMatrix = useMemo(() => {
+    // Map: doctorName → { medicineName → qty }
+    const matrix: Record<string, Record<string, number>> = {};
+    for (const b of active) {
+      const doc = b.doctorName || "Walk-in";
+      if (!matrix[doc]) matrix[doc] = {};
+      for (const it of b.items) {
+        matrix[doc][it.name] = (matrix[doc][it.name] || 0) + it.quantity;
+      }
+    }
+    // Build rows: top 5 doctors × top 6 medicines
+    const topDocs = doctorStats.slice(0, 5).map(d => d.name);
+    const allMedNames = new Set<string>();
+    active.forEach(b => b.items.forEach(it => allMedNames.add(it.name)));
+    // Top 6 medicines by qty
+    const topMedNames = topMeds.slice(0, 6).map(m => m.name);
+    return { topDocs, topMedNames, matrix };
+  }, [active, doctorStats, topMeds]);
+
+  /* ── Payment breakdown ── */
+  const paymentBreakdown = useMemo(() => {
+    const map: Record<string, { count: number; total: number }> = {};
+    active.forEach(b => {
+      const m = b.paymentMethod || "Unknown";
+      if (!map[m]) map[m] = { count: 0, total: 0 };
+      map[m].count++;
+      map[m].total += b.total;
+    });
+    return Object.entries(map).map(([name, v]) => ({ name, ...v, total: +v.total.toFixed(2) }));
+  }, [active]);
+
   /* ── Chat state ── */
   const [messages, setMessages] = useState<{ role: "user" | "ai"; text: string }[]>([
     {
@@ -400,7 +446,104 @@ export function AnalyticsTab() {
           </div>
         </div>
 
-        {/* AI Chat */}
+        {/* ── Revenue per Unit chart ── */}
+        <div className="lg:col-span-3">
+          <Card className="p-5">
+            <h3 className="font-semibold mb-1">Revenue per Unit — Top 10 Items</h3>
+            <p className="text-xs text-muted-foreground mb-3">Shows how much revenue each unit sold generates (price × sell-through efficiency)</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={revenuePerUnit} margin={{ left: -10 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={55} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `₹${v}`} />
+                  <Tooltip formatter={(v: any, name: string) => [`₹${v}`, name === "revenuePerUnit" ? "Revenue/Unit" : "Total Revenue"]} />
+                  <Legend />
+                  <Bar dataKey="revenuePerUnit" fill="#7c3aed" name="Revenue/Unit" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="totalRevenue" fill="#2563eb" name="Total Revenue" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        </div>
+
+        {/* ── Doctor → Medicine Prescribing Matrix ── */}
+        <div className="lg:col-span-2">
+          <Card className="p-5">
+            <h3 className="font-semibold mb-1 flex items-center gap-2">
+              <User className="h-4 w-4 text-muted-foreground" /> Doctor → Medicine Prescribing Matrix
+            </h3>
+            <p className="text-xs text-muted-foreground mb-3">Units prescribed per doctor for top medicines</p>
+            {doctorMedMatrix.topDocs.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">No doctor prescription data yet.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Doctor</th>
+                      {doctorMedMatrix.topMedNames.map(m => (
+                        <th key={m} className="text-right px-2 py-2 font-semibold text-muted-foreground max-w-[80px]">
+                          <div className="truncate" title={m}>{m.length > 10 ? m.slice(0, 10) + "…" : m}</div>
+                        </th>
+                      ))}
+                      <th className="text-right px-3 py-2 font-semibold text-muted-foreground">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {doctorMedMatrix.topDocs.map(doc => {
+                      const row = doctorMedMatrix.matrix[doc] ?? {};
+                      const rowTotal = Object.values(row).reduce((s, v) => s + v, 0);
+                      return (
+                        <tr key={doc} className="border-t">
+                          <td className="px-3 py-2 font-semibold truncate max-w-[120px]" title={doc}>{doc}</td>
+                          {doctorMedMatrix.topMedNames.map(med => {
+                            const qty = row[med] || 0;
+                            const intensity = rowTotal > 0 ? qty / rowTotal : 0;
+                            return (
+                              <td key={med} className="text-right px-2 py-2">
+                                <span className={`inline-block rounded px-1.5 py-0.5 font-mono text-[11px] ${
+                                  qty === 0 ? "text-muted-foreground" :
+                                  intensity > 0.4 ? "bg-primary text-primary-foreground" :
+                                  intensity > 0.15 ? "bg-primary/20 text-primary" :
+                                  "bg-muted text-muted-foreground"
+                                }`}>{qty || "—"}</span>
+                              </td>
+                            );
+                          })}
+                          <td className="text-right px-3 py-2 font-bold text-primary">{rowTotal}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* ── Payment Method Breakdown ── */}
+        <Card className="p-5">
+          <h3 className="font-semibold mb-3">Payment Methods</h3>
+          <div className="space-y-3">
+            {paymentBreakdown.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No payment data.</p>
+            ) : paymentBreakdown.map(p => (
+              <div key={p.name}>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="font-medium">{p.name}</span>
+                  <span className="text-muted-foreground">{p.count} bills · ₹{p.total.toFixed(0)}</span>
+                </div>
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full"
+                    style={{ width: `${active.length > 0 ? (p.count / active.length) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
         <Card className="flex flex-col overflow-hidden border-brand-blue/20" style={{ minHeight: 520 }}>
           {/* Header */}
           <div className="p-4 border-b bg-gradient-to-r from-brand-blue/10 to-primary/5 flex items-center gap-3 shrink-0">

@@ -113,3 +113,17 @@ CREATE TABLE public.purchases (
 );
 ALTER TABLE public.purchases ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Authenticated access to purchases" ON purchases FOR ALL USING (auth.role() = 'authenticated');
+
+-- 7. Expenses (Other pharmacy operating expenses)
+-- Run this in Supabase Dashboard → SQL Editor to enable Finance tab expense tracking
+CREATE TABLE IF NOT EXISTS public.expenses (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  amount DECIMAL(10,2) NOT NULL,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'Miscellaneous',
+  date DATE NOT NULL DEFAULT CURRENT_DATE,
+  created_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated access to expenses" ON expenses FOR ALL USING (auth.role() = 'authenticated');

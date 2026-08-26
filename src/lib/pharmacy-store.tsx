@@ -81,6 +81,16 @@ export interface Doctor {
   active: boolean;
 }
 
+export interface Expense {
+  id: string;
+  amount: number;
+  description: string;
+  category: string;
+  date: string;
+  createdBy: string;
+  createdAt: string;
+}
+
 
 /* ---------- Context ---------- */
 interface PharmacyState {
@@ -112,6 +122,10 @@ interface PharmacyState {
   addDoctor: (d: Omit<Doctor, "id" | "active">) => Promise<void>;
   deleteDoctor: (id: string) => Promise<void>;
   toggleDoctor: (id: string, active: boolean) => Promise<void>;
+
+  expenses: Expense[];
+  addExpense: (e: Omit<Expense, "id" | "createdAt" | "createdBy">) => Promise<void>;
+  deleteExpense: (id: string) => Promise<void>;
 
   canTransfer: boolean;
   printFormat: string;
@@ -176,6 +190,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
   const [bills, setBills] = useState<Bill[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [canTransfer, setCanTransfer] = useState(true);
   const [printFormat, setPrintFormat] = useState("A4");
   const [autoPrint, setAutoPrint] = useState(true);
@@ -185,12 +200,13 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     if (!user) return;
     setLoading(true);
     try {
-      const [medRes, matRes, purRes, docRes, setRes] = await Promise.all([
+      const [medRes, matRes, purRes, docRes, setRes, expRes] = await Promise.all([
         supabase.from("medicines").select("*").order("name"),
         supabase.from("materials").select("*").order("name"),
         supabase.from("purchases").select("*").order("created_at", { ascending: false }),
         supabase.from("doctors").select("*").order("name"),
         supabase.from("settings").select("*"),
+        supabase.from("expenses").select("*").order("date", { ascending: false }),
       ]);
       setMedicines((medRes.data ?? []).map(rowToMedicine));
       setMaterials((matRes.data ?? []).map(rowToMaterial));
@@ -201,6 +217,10 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         invoice_no: p.invoice_no, free_quantity: p.free_quantity, discount_amount: p.discount_amount, mrp: p.mrp
       })));
       setDoctors(docRes.data ?? []);
+      setExpenses((expRes.data ?? []).map((e: any) => ({
+        id: e.id, amount: e.amount, description: e.description,
+        category: e.category, date: e.date, createdBy: e.created_by, createdAt: e.created_at,
+      })));
 
       const settings = setRes.data ?? [];
       const tSet = settings.find((s: any) => s.key === "allow_pharmacist_transfer");
@@ -599,6 +619,24 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     setDoctors((prev) => prev.map((d) => d.id === id ? { ...d, active } : d));
   };
 
+  /* --- Expenses --- */
+  const addExpense = async (e: Omit<Expense, "id" | "createdAt" | "createdBy">) => {
+    const createdBy = user?.email ?? "unknown";
+    const { data, error } = await supabase
+      .from("expenses")
+      .insert({ amount: e.amount, description: e.description, category: e.category, date: e.date, created_by: createdBy })
+      .select()
+      .single();
+    if (error) throw error;
+    setExpenses(prev => [{ id: data.id, amount: data.amount, description: data.description, category: data.category, date: data.date, createdBy: data.created_by, createdAt: data.created_at }, ...prev]);
+  };
+
+  const deleteExpense = async (id: string) => {
+    const { error } = await supabase.from("expenses").delete().eq("id", id);
+    if (error) throw error;
+    setExpenses(prev => prev.filter(e => e.id !== id));
+  };
+
   /* --- Settings --- */
   const updateSetting = async (key: string, value: string) => {
     const { error } = await supabase.from("settings").upsert({ key, value });
@@ -616,6 +654,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         bills,
         purchases,
         doctors,
+        expenses,
         canTransfer,
         printFormat,
         autoPrint,
@@ -634,6 +673,8 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         addDoctor,
         deleteDoctor,
         toggleDoctor,
+        addExpense,
+        deleteExpense,
         updateSetting,
         refresh: loadAll,
       }}
