@@ -8,14 +8,23 @@ import { Search, Undo2, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 
 export function ReturnsTab() {
-  const { bills, refundBill } = usePharmacy();
+  const { bills, refundItems } = usePharmacy();
   const [q, setQ] = useState("");
   const [foundId, setFoundId] = useState<string | null>(null);
+  const [refundQtys, setRefundQtys] = useState<Record<string, number>>({});
+  const [processing, setProcessing] = useState(false);
 
   const search = () => {
     const b = bills.find((x) => x.id.toLowerCase() === q.trim().toLowerCase());
     if (!b) { toast.error("Bill not found"); setFoundId(null); return; }
     setFoundId(b.id);
+    
+    // Initialize refund quantities to remaining possible amounts
+    const qtys: Record<string, number> = {};
+    for (const it of b.items) {
+      qtys[it.medicineId] = it.quantity - (it.refundedQuantity || 0);
+    }
+    setRefundQtys(qtys);
   };
   const bill = foundId ? bills.find((b) => b.id === foundId) : null;
 
@@ -50,25 +59,67 @@ export function ReturnsTab() {
               {bill.status}
             </Badge>
           </div>
-          <div className="space-y-1.5 border-t pt-3">
-            {bill.items.map((it, i) => (
-              <div key={i} className="flex justify-between text-sm">
-                <span>{it.name} × {it.quantity}</span>
-                <span>₹{(it.price * it.quantity).toFixed(2)}</span>
-              </div>
-            ))}
-            <div className="flex justify-between font-bold pt-2 border-t">
-              <span>Total</span>
+          <div className="space-y-3 border-t pt-3">
+            {bill.items.map((it, i) => {
+              const maxRef = it.quantity - (it.refundedQuantity || 0);
+              const isFullyRefunded = maxRef === 0;
+
+              return (
+                <div key={i} className="flex justify-between items-center text-sm gap-2">
+                  <div className="flex-1">
+                    <span className={isFullyRefunded ? "line-through text-muted-foreground" : ""}>{it.name}</span> 
+                    <span className="text-muted-foreground ml-1">
+                      (Total: {it.quantity} | Refunded: {it.refundedQuantity || 0})
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">₹{(it.price * it.quantity).toFixed(2)}</span>
+                    {!isFullyRefunded && bill.status !== "refunded" && (
+                      <div className="flex items-center gap-1 w-24">
+                        <Input 
+                          type="number" 
+                          className="h-8 text-center" 
+                          min={0} 
+                          max={maxRef}
+                          value={refundQtys[it.medicineId] ?? maxRef}
+                          onChange={(e) => {
+                            let val = parseInt(e.target.value) || 0;
+                            if (val > maxRef) val = maxRef;
+                            if (val < 0) val = 0;
+                            setRefundQtys(prev => ({ ...prev, [it.medicineId]: val }));
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex justify-between font-bold pt-2 border-t mt-4">
+              <span>Total Bill Amount</span>
               <span>₹{bill.total.toFixed(2)}</span>
             </div>
           </div>
           <Button
-            disabled={bill.status !== "paid"}
+            disabled={bill.status === "refunded" || processing || Object.values(refundQtys).every(v => v === 0)}
             variant="destructive"
             className="w-full mt-4 h-11"
-            onClick={() => { refundBill(bill.id); toast.success("Refund processed & stock restored"); }}
+            onClick={async () => { 
+              setProcessing(true);
+              try {
+                const itemsToRefund = Object.entries(refundQtys).map(([medicineId, qty]) => ({ medicineId, qty }));
+                await refundItems(bill.id, itemsToRefund);
+                toast.success("Refund processed & stock restored");
+                search(); // re-fetch state
+              } catch (e: any) {
+                toast.error(e.message);
+              } finally {
+                setProcessing(false);
+              }
+            }}
           >
-            <RefreshCcw className="h-4 w-4 mr-2" /> {bill.status === "refunded" ? "Already Refunded" : "Process Full Refund"}
+            <RefreshCcw className="h-4 w-4 mr-2" /> 
+            {bill.status === "refunded" ? "Fully Refunded" : "Process Selected Refunds"}
           </Button>
         </div>
       )}

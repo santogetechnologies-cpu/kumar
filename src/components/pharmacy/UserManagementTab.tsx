@@ -56,7 +56,7 @@ interface PharmacyUser {
 
 export function UserManagementTab() {
   const { user: currentUser } = useAuth();
-  const { doctors, addDoctor, deleteDoctor, toggleDoctor, canTransfer, updateSetting } = usePharmacy();
+  const { doctors, addDoctor, deleteDoctor, toggleDoctor, canTransfer, updateSetting, printFormat, autoPrint } = usePharmacy();
   const [users, setUsers] = useState<PharmacyUser[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -324,6 +324,35 @@ export function UserManagementTab() {
             {canTransfer ? <Lock className="h-4 w-4 mr-2" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
             {canTransfer ? "Disable Transfer" : "Enable Transfer"}
           </Button>
+        </Card>
+
+        <Card className="p-5 flex flex-col gap-4 mt-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-semibold">Auto-Open Print Dialog</h4>
+              <p className="text-sm text-muted-foreground mt-1">Automatically open the bill print modal after dispensing.</p>
+            </div>
+            <Button
+              variant={autoPrint ? "default" : "outline"}
+              onClick={() => updateSetting("auto_print", autoPrint ? "false" : "true")}
+            >
+              {autoPrint ? "Enabled" : "Disabled"}
+            </Button>
+          </div>
+          
+          <div className="border-t pt-4 flex items-center justify-between">
+            <div>
+              <h4 className="font-semibold">Default Print Format</h4>
+              <p className="text-sm text-muted-foreground mt-1">Choose the preferred format for printing bills.</p>
+            </div>
+            <Select value={printFormat} onValueChange={(v) => updateSetting("print_format", v)}>
+              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="A4">A4 / A5 (Standard)</SelectItem>
+                <SelectItem value="Thermal">Thermal Receipt (80mm)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </Card>
       </div>
 

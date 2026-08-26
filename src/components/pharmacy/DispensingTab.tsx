@@ -165,6 +165,16 @@ export function DispensingTab() {
     }));
   };
 
+  const setQtyDirectly = (id: string, qtyStr: string) => {
+    const val = parseInt(qtyStr) || 0;
+    setCart(c => c.flatMap(x => {
+      if (x.medicineId !== id) return [x];
+      if (val <= 0) return []; // removes item if 0
+      if (val > x.stock) { toast.error("Not enough pharmacy stock"); return [x]; }
+      return [{ ...x, quantity: val }];
+    }));
+  };
+
   const removeItem = (id: string) => setCart(c => c.filter(x => x.medicineId !== id));
 
   const grossTotal = cart.reduce((s, x) => s + x.price * x.quantity, 0);
@@ -472,7 +482,13 @@ export function DispensingTab() {
                   <div className="flex items-center justify-between border-t pt-2 mt-1">
                     <div className="flex items-center gap-1">
                       <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => changeQty(c.medicineId, -1)}><Minus className="h-3 w-3" /></Button>
-                      <span className="w-6 text-center text-sm font-semibold">{c.quantity}</span>
+                      <Input
+                        type="number"
+                        className="h-7 w-14 text-center px-1 py-0 text-sm font-semibold"
+                        value={c.quantity || ""}
+                        onChange={(e) => setQtyDirectly(c.medicineId, e.target.value)}
+                        min={0}
+                      />
                       <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => changeQty(c.medicineId, 1)}><Plus className="h-3 w-3" /></Button>
                     </div>
                     <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => removeItem(c.medicineId)}>

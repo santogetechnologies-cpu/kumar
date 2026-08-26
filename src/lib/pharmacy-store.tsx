@@ -36,9 +36,11 @@ export interface Material {
 }
 
 export interface BillItem {
+  id?: string;
   medicineId: string;
   name: string;
   quantity: number;
+  refundedQuantity?: number;
   price: number;
 }
 
@@ -50,7 +52,7 @@ export interface Bill {
   items: BillItem[];
   total: number;
   discountPct: number;
-  status: "paid" | "pending" | "refunded";
+  status: "paid" | "pending" | "refunded" | "partially_refunded";
   paymentMethod: string;
   createdAt: string;
   createdBy: string;
@@ -100,7 +102,7 @@ interface PharmacyState {
     amount: number
   ) => Promise<void>;
   addBill: (b: Omit<Bill, "id" | "createdAt" | "createdBy">) => Promise<Bill>;
-  refundBill: (id: string) => Promise<void>;
+  refundItems: (id: string, itemsToRefund: { medicineId: string; qty: number }[]) => Promise<void>;
   addPurchase: (p: Omit<Purchase, "id" | "createdAt">) => Promise<void>;
   updatePurchaseStatus: (
     id: string,
@@ -113,6 +115,8 @@ interface PharmacyState {
   toggleDoctor: (id: string, active: boolean) => Promise<void>;
 
   canTransfer: boolean;
+  printFormat: string;
+  autoPrint: boolean;
   updateSetting: (key: string, value: string) => Promise<void>;
 
   refresh: () => Promise<void>;
@@ -171,9 +175,11 @@ async function fetchBills(): Promise<Bill[]> {
     createdAt: b.created_at,
     createdBy: b.created_by ?? "",
     items: (b.bill_items ?? []).map((it: any) => ({
+      id: it.id,
       medicineId: it.medicine_id ?? "",
       name: it.name,
       quantity: it.quantity,
+      refundedQuantity: it.refunded_quantity ?? 0,
       price: it.price,
     })),
   }));
@@ -188,6 +194,8 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [canTransfer, setCanTransfer] = useState(true);
+  const [printFormat, setPrintFormat] = useState("A4");
+  const [autoPrint, setAutoPrint] = useState(true);
   const [loading, setLoading] = useState(true);
 
   const loadAll = async () => {
@@ -204,30 +212,23 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       setMedicines((medRes.data ?? []).map(rowToMedicine));
       setMaterials((matRes.data ?? []).map(rowToMaterial));
       setBills(await fetchBills());
-      setPurchases(
-        (purRes.data ?? []).map((p: any) => ({
-          id: p.id,
-          item: p.item,
-          supplier: p.supplier,
-          quantity: p.quantity,
-          received: p.received,
-          cost: p.cost,
-          status: p.status,
-          createdAt: p.created_at,
-        }))
-      );
-      setDoctors(
-        (docRes.data ?? []).map((d: any) => ({
-          id: d.id,
-          name: d.name,
-          specialty: d.specialty ?? "",
-          active: d.active,
-        }))
-      );
-      const allowTransferSetting = (setRes.data ?? []).find(s => s.key === "allow_pharmacist_transfer");
-      if (allowTransferSetting) {
-        setCanTransfer(allowTransferSetting.value === "true");
-      }
+      setPurchases((purRes.data ?? []).map(p => ({
+        id: p.id, item: p.item, supplier: p.supplier, quantity: p.quantity,
+        received: p.received, cost: p.cost, status: p.status, createdAt: p.created_at
+      })));
+      setDoctors(docRes.data ?? []);
+
+      const settings = setRes.data ?? [];
+      const tSet = settings.find((s: any) => s.key === "allow_pharmacist_transfer");
+      if (tSet) setCanTransfer(tSet.value === "true");
+        
+      const pfSet = settings.find((s: any) => s.key === "print_format");
+      if (pfSet) setPrintFormat(pfSet.value);
+
+      const apSet = settings.find((s: any) => s.key === "auto_print");
+      if (apSet) setAutoPrint(apSet.value === "true");
+    } catch (e) {
+      console.error(e);
     } finally {
       setLoading(false);
     }
@@ -452,33 +453,55 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     return newBill;
   };
 
-  const refundBill = async (id: string) => {
+  const refundItems = async (id: string, itemsToRefund: { medicineId: string; qty: number }[]) => {
     const bill = bills.find((x) => x.id === id);
-    if (!bill || bill.status === "refunded") return;
-    const { error } = await supabase
-      .from("bills")
-      .update({ status: "refunded" })
-      .eq("id", id);
-    if (error) throw error;
-    setBills((prev) =>
-      prev.map((x) => (x.id === id ? { ...x, status: "refunded" } : x))
-    );
-    // Restore stock
-    setMedicines((prev) =>
-      prev.map((m) => {
-        const it = bill.items.find((i) => i.medicineId === m.id);
-        return it ? { ...m, pharmacyQuantity: m.pharmacyQuantity + it.quantity } : m;
-      })
-    );
-    for (const it of bill.items) {
-      if (!it.medicineId) continue;
-      const med = medicines.find((x) => x.id === it.medicineId);
-      if (!med) continue;
-      await supabase
-        .from("medicines")
-        .update({ pharmacy_quantity: med.pharmacyQuantity + it.quantity })
-        .eq("id", it.medicineId);
+    if (!bill) return;
+
+    let updatedItems = [...bill.items];
+    let fullyRefunded = true;
+
+    for (const refItem of itemsToRefund) {
+      if (refItem.qty <= 0) continue;
+      const bItem = updatedItems.find(i => i.medicineId === refItem.medicineId);
+      if (!bItem) continue;
+
+      const newRefQty = (bItem.refundedQuantity || 0) + refItem.qty;
+      
+      // Update DB for this bill item
+      if (bItem.id) {
+        await supabase
+          .from("bill_items")
+          .update({ refunded_quantity: newRefQty })
+          .eq("id", bItem.id);
+      }
+
+      bItem.refundedQuantity = newRefQty;
+
+      // Update Stock (check medicines then materials)
+      const med = medicines.find(m => m.id === refItem.medicineId);
+      if (med) {
+        const nq = med.pharmacyQuantity + refItem.qty;
+        await supabase.from("medicines").update({ pharmacy_quantity: nq }).eq("id", med.id);
+        setMedicines(prev => prev.map(m => m.id === med.id ? { ...m, pharmacyQuantity: nq } : m));
+      } else {
+        const mat = materials.find(m => m.id === refItem.medicineId);
+        if (mat) {
+          const nq = mat.pharmacyQuantity + refItem.qty;
+          await supabase.from("materials").update({ pharmacy_quantity: nq }).eq("id", mat.id);
+          setMaterials(prev => prev.map(m => m.id === mat.id ? { ...m, pharmacyQuantity: nq } : m));
+        }
+      }
     }
+
+    // Check if entire bill is refunded
+    for (const it of updatedItems) {
+      if ((it.refundedQuantity || 0) < it.quantity) fullyRefunded = false;
+    }
+
+    const newStatus = fullyRefunded ? "refunded" : "partially_refunded";
+
+    await supabase.from("bills").update({ status: newStatus }).eq("id", id);
+    setBills(prev => prev.map(b => b.id === id ? { ...b, status: newStatus, items: updatedItems } : b));
   };
 
   /* --- Purchases --- */
@@ -583,9 +606,9 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
   const updateSetting = async (key: string, value: string) => {
     const { error } = await supabase.from("settings").upsert({ key, value });
     if (error) throw error;
-    if (key === "allow_pharmacist_transfer") {
-      setCanTransfer(value === "true");
-    }
+    if (key === "allow_pharmacist_transfer") setCanTransfer(value === "true");
+    if (key === "print_format") setPrintFormat(value);
+    if (key === "auto_print") setAutoPrint(value === "true");
   };
 
   return (
@@ -597,6 +620,8 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         purchases,
         doctors,
         canTransfer,
+        printFormat,
+        autoPrint,
         loading,
         addMedicine,
         updateMedicine,
