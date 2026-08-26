@@ -199,6 +199,8 @@ export function UserManagementTab() {
     } finally {
       setDeleting(false);
     }
+  };
+
   /* ---- Doctors ---- */
   const handleAddDoctor = async () => {
     if (!newDoctorName) return toast.error("Doctor name is required");

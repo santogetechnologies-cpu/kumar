@@ -79,13 +79,7 @@ export interface Doctor {
   specialty: string;
   active: boolean;
 }
-  supplier: string;
-  quantity: number;
-  received: number;
-  cost: number;
-  status: "pending" | "received" | "cancelled";
-  createdAt: string;
-}
+
 
 /* ---------- Context ---------- */
 interface PharmacyState {
