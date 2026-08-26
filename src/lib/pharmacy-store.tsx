@@ -161,7 +161,7 @@ const fetchBills = async () => {
     id: b.id, patientName: b.patient_name, patientId: b.patient_id, doctorId: b.doctor_id, doctorName: b.doctor_name,
     total: b.total, discountPct: b.discount_pct, status: b.status,
     paymentMethod: b.payment_method, createdAt: b.created_at, createdBy: b.created_by,
-    items: b.items.map((i: any) => ({
+    items: (b.items || []).map((i: any) => ({
       id: i.id, medicineId: i.medicine_id, name: i.name, quantity: i.quantity,
       refundedQuantity: i.refunded_quantity, price: i.price
     }))
