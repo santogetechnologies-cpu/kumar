@@ -191,9 +191,11 @@ export function DispensingTab() {
     if (!patientName.trim()) { toast.error("Enter patient name"); return; }
     if (cart.length === 0) { toast.error("Cart is empty"); return; }
     try {
+      const selectedDoc = doctors.find(d => d.name === doctorName);
       const bill = await addBill({
         patientName: patientName.trim(),
         patientId: patientId.trim() || "P" + Math.floor(1000 + Math.random() * 9000),
+        doctorId: selectedDoc?.id,
         doctorName: doctorName,
         items: cart.map(c => ({ medicineId: c.medicineId, name: c.name, quantity: c.quantity, price: c.price })),
         total,

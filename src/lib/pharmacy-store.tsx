@@ -48,6 +48,7 @@ export interface Bill {
   id: string;
   patientName: string;
   patientId: string;
+  doctorId?: string;
   doctorName?: string;
   items: BillItem[];
   total: number;
@@ -153,35 +154,19 @@ function rowToMaterial(r: any): Material {
   };
 }
 
-async function fetchBills(): Promise<Bill[]> {
-  const { data: billRows, error } = await supabase
-    .from("bills")
-    .select("*, bill_items(*)")
-    .order("created_at", { ascending: false });
-
-  if (error) throw error;
-
-  return (billRows ?? []).map((b: any) => ({
-    id: b.id,
-    patientName: b.patient_name,
-    patientId: b.patient_id ?? "",
-    doctorName: b.doctor_name ?? "",
-    total: b.total,
-    discountPct: b.discount_pct ?? 0,
-    status: b.status,
-    paymentMethod: b.payment_method ?? "",
-    createdAt: b.created_at,
-    createdBy: b.created_by ?? "",
-    items: (b.bill_items ?? []).map((it: any) => ({
-      id: it.id,
-      medicineId: it.medicine_id ?? "",
-      name: it.name,
-      quantity: it.quantity,
-      refundedQuantity: it.refunded_quantity ?? 0,
-      price: it.price,
-    })),
+const fetchBills = async () => {
+  const { data, error } = await supabase.from("bills").select("*, items:bill_items(*)").order("created_at", { ascending: false });
+  if (error) return [];
+  return data.map((b: any) => ({
+    id: b.id, patientName: b.patient_name, patientId: b.patient_id, doctorId: b.doctor_id, doctorName: b.doctor_name,
+    total: b.total, discountPct: b.discount_pct, status: b.status,
+    paymentMethod: b.payment_method, createdAt: b.created_at, createdBy: b.created_by,
+    items: b.items.map((i: any) => ({
+      id: i.id, medicineId: i.medicine_id, name: i.name, quantity: i.quantity,
+      refundedQuantity: i.refunded_quantity, price: i.price
+    }))
   }));
-}
+};
 
 /* ---------- Provider ---------- */
 export function PharmacyProvider({ children }: { children: ReactNode }) {
@@ -381,6 +366,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       id: billId,
       patient_name: b.patientName,
       patient_id: b.patientId,
+      doctor_id: b.doctorId,
       doctor_name: b.doctorName,
       total: b.total,
       discount_pct: b.discountPct,
