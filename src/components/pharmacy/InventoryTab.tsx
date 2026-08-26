@@ -8,18 +8,18 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Package, FlaskConical, ShoppingCart, GitBranch, Calendar, AlertTriangle, LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText } from "lucide-react";
+import { Package, FlaskConical, ShoppingCart, Calendar, AlertTriangle, LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { InvoiceDialog, type InvoiceRow, type InvoiceMeta, rowTaxable, rowGst } from "./InvoiceDialog";
 import { BulkUploadDialog } from "./BulkUploadDialog";
 
-type SubTab = "dashboard" | "medicines" | "materials" | "purchases" | "branches" | "movements" | "expiry" | "lowstock";
+type SubTab = "dashboard" | "medicines" | "materials" | "purchases" | "movements" | "expiry" | "lowstock";
 
 const subTabs: { id: SubTab; label: string; icon: any }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "medicines", label: "Medicines", icon: Package },
   { id: "materials", label: "Materials", icon: FlaskConical },
   { id: "purchases", label: "Purchases", icon: ShoppingCart },
-  { id: "branches", label: "Branches", icon: GitBranch },
   { id: "movements", label: "Movements", icon: ArrowLeftRight },
   { id: "expiry", label: "Expiry", icon: Calendar },
   { id: "lowstock", label: "Low Stock", icon: AlertTriangle },
@@ -53,7 +53,6 @@ export function InventoryTab() {
       {sub === "medicines" && <MedicinesMgmt />}
       {sub === "materials" && <MaterialsMgmt />}
       {sub === "purchases" && <PurchasesMgmt />}
-      {sub === "branches" && <BranchesView />}
       {sub === "movements" && <MovementsView />}
       {sub === "expiry" && <ExpiryView />}
       {sub === "lowstock" && <LowStockView />}
@@ -381,31 +380,7 @@ function PurchasesMgmt() {
   );
 }
 
-function BranchesView() {
-  const branches = [
-    { name: "Kumar Hospital — Main", location: "Chennai", medicines: 447, active: true },
-    { name: "Kumar Hospital — East Wing", location: "Chennai", medicines: 128, active: true },
-  ];
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {branches.map((b) => (
-        <Card key={b.name} className="p-5">
-          <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center"><GitBranch className="h-6 w-6" /></div>
-            <div>
-              <div className="font-semibold">{b.name}</div>
-              <div className="text-xs text-muted-foreground">{b.location}</div>
-            </div>
-          </div>
-          <div className="mt-4 flex justify-between text-sm">
-            <span className="text-muted-foreground">Medicines</span><span className="font-semibold">{b.medicines}</span>
-          </div>
-          <Badge className="mt-3 bg-success text-white hover:bg-success">Active</Badge>
-        </Card>
-      ))}
-    </div>
-  );
-}
+
 
 function MovementsView() {
   const { bills } = usePharmacy();

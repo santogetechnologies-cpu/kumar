@@ -63,6 +63,7 @@ export function ReturnsTab() {
             {bill.items.map((it, i) => {
               const maxRef = it.quantity - (it.refundedQuantity || 0);
               const isFullyRefunded = maxRef === 0;
+              const currentRefundQty = refundQtys[it.medicineId] ?? maxRef;
 
               return (
                 <div key={i} className="flex justify-between items-center text-sm gap-2">
@@ -73,7 +74,7 @@ export function ReturnsTab() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground">₹{(it.price * it.quantity).toFixed(2)}</span>
+                    <span className="text-muted-foreground font-semibold w-20 text-right">₹{(it.price * currentRefundQty).toFixed(2)}</span>
                     {!isFullyRefunded && bill.status !== "refunded" && (
                       <div className="flex items-center gap-1 w-24">
                         <Input 
@@ -81,7 +82,7 @@ export function ReturnsTab() {
                           className="h-8 text-center" 
                           min={0} 
                           max={maxRef}
-                          value={refundQtys[it.medicineId] ?? maxRef}
+                          value={currentRefundQty}
                           onChange={(e) => {
                             let val = parseInt(e.target.value) || 0;
                             if (val > maxRef) val = maxRef;
@@ -95,9 +96,15 @@ export function ReturnsTab() {
                 </div>
               );
             })}
-            <div className="flex justify-between font-bold pt-2 border-t mt-4">
-              <span>Total Bill Amount</span>
-              <span>₹{bill.total.toFixed(2)}</span>
+            <div className="space-y-1 pt-2 border-t mt-4">
+              <div className="flex justify-between font-bold text-muted-foreground">
+                <span>Original Bill Amount</span>
+                <span>₹{bill.total.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-lg text-primary pt-1">
+                <span>Total Refund Amount</span>
+                <span>₹{bill.items.reduce((sum, it) => sum + ((refundQtys[it.medicineId] ?? (it.quantity - (it.refundedQuantity || 0))) * it.price), 0).toFixed(2)}</span>
+              </div>
             </div>
           </div>
           <Button
