@@ -348,9 +348,10 @@ export function UserManagementTab() {
               <p className="text-sm text-muted-foreground mt-1">Choose the preferred format for printing bills.</p>
             </div>
             <Select value={printFormat} onValueChange={(v) => updateSetting("print_format", v)}>
-              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="A4">A4 / A5 (Standard)</SelectItem>
+                <SelectItem value="A4-Portrait">A4 Portrait (Vertical)</SelectItem>
+                <SelectItem value="A4-Landscape">A4 Landscape (Horizontal)</SelectItem>
                 <SelectItem value="Thermal">Thermal Receipt (80mm)</SelectItem>
               </SelectContent>
             </Select>

@@ -27,16 +27,15 @@ interface CartItem {
 interface ItemGroup {
   name: string;
   category: string;
-  batches: Medicine[]; // or Material[]
+  batches: Medicine[]; // medicines & materials share the same shape
   totalPharmacyStock: number;
 }
 
 export function DispensingTab() {
   const { medicines, materials, doctors, addBill, autoPrint, printFormat } = usePharmacy();
   const [q, setQ] = useState("");
-  const [activeTab, setActiveTab] = useState<"medicines" | "materials">("medicines");
   const [selectedGroup, setSelectedGroup] = useState<ItemGroup | null>(null);
-  
+
   const [lastBill, setLastBill] = useState<Bill | null>(null);
   const [showPrintDialog, setShowPrintDialog] = useState(false);
 
@@ -58,14 +57,19 @@ export function DispensingTab() {
   const [discountPct, setDiscountPct] = useState<number>(0);
   const [lastBillId, setLastBillId] = useState<string | null>(null);
 
+  // Merged source: medicines + materials tagged with _isMaterial
+  const allItems = useMemo(() => [
+    ...medicines.map((m) => ({ ...m, _isMaterial: false })),
+    ...materials.map((m) => ({ ...m, _isMaterial: true })),
+  ], [medicines, materials]);
+
   // Build FIFO groups: group by name, sort batches by expiry date ascending
   const groups = useMemo<ItemGroup[]>(() => {
-    const source = activeTab === "medicines" ? medicines : materials;
     const map = new Map<string, Medicine[]>();
-    for (const m of source) {
+    for (const m of allItems) {
       const key = m.name.toLowerCase();
       if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(m as Medicine); // cast for simplicity, material has same shape
+      map.get(key)!.push(m as Medicine);
     }
     const result: ItemGroup[] = [];
     map.forEach((batches, _key) => {
@@ -76,7 +80,7 @@ export function DispensingTab() {
       result.push({ name: sorted[0].name, category: sorted[0].category, batches: sorted, totalPharmacyStock });
     });
     return result.sort((a, b) => a.name.localeCompare(b.name));
-  }, [medicines, materials, activeTab]);
+  }, [allItems]);
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -209,7 +213,7 @@ export function DispensingTab() {
       setCart([]);
       setPatientName("");
       setPatientId("");
-      
+
       if (autoPrint) {
         setShowPrintDialog(true);
       }
@@ -232,19 +236,8 @@ export function DispensingTab() {
             </div>
             <div>
               <h2 className="font-semibold">Prescription</h2>
-              <p className="text-xs text-muted-foreground">Search & add items (FIFO batch auto-selected)</p>
+              <p className="text-xs text-muted-foreground">Search medicines & materials (FIFO batch auto-selected)</p>
             </div>
-          </div>
-
-          <div className="flex border rounded-lg overflow-hidden mb-4 p-1 bg-muted/20">
-            <button
-              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === "medicines" ? "bg-primary text-primary-foreground shadow" : "hover:bg-muted"}`}
-              onClick={() => { setActiveTab("medicines"); setSelectedGroup(null); setQ(""); }}
-            >Medicines</button>
-            <button
-              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === "materials" ? "bg-primary text-primary-foreground shadow" : "hover:bg-muted"}`}
-              onClick={() => { setActiveTab("materials"); setSelectedGroup(null); setQ(""); }}
-            >Materials</button>
           </div>
 
           <div className="relative mb-4">
@@ -252,7 +245,7 @@ export function DispensingTab() {
             <Input
               value={q}
               onChange={e => { setQ(e.target.value); setSelectedGroup(null); }}
-              placeholder={`Type ${activeTab.slice(0,-1)} name or batch number...`}
+              placeholder="Type item name or batch number..."
               className="pl-9 h-11 text-base"
             />
           </div>
@@ -267,7 +260,7 @@ export function DispensingTab() {
                 const out = g.totalPharmacyStock <= 0;
                 const low = g.totalPharmacyStock > 0 && g.batches.some(b => b.pharmacyQuantity <= b.minLevel);
                 const firstBatch = g.batches[0];
-                const days = daysUntilExpiry(firstBatch.expiry);
+                const isMat = (firstBatch as any)._isMaterial;
                 return (
                   <button
                     key={g.name}
@@ -277,7 +270,12 @@ export function DispensingTab() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="font-semibold truncate">{g.name}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="font-semibold truncate">{g.name}</div>
+                          {isMat && (
+                            <Badge variant="secondary" className="text-[10px] py-0 px-1.5 shrink-0">Material</Badge>
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground">{g.category}</div>
                         {/* Show all batches */}
                         <div className="mt-1.5 space-y-0.5">
@@ -559,10 +557,10 @@ export function DispensingTab() {
         </Card>
       </div>
 
-      <BillPrintDialog 
-        open={showPrintDialog} 
-        onOpenChange={setShowPrintDialog} 
-        bill={lastBill} 
+      <BillPrintDialog
+        open={showPrintDialog}
+        onOpenChange={setShowPrintDialog}
+        bill={lastBill}
         format={printFormat}
       />
     </div>

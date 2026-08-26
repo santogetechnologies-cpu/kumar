@@ -376,29 +376,41 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     });
     if (billError) throw billError;
 
-    // Insert bill items
+    // Insert bill items — medicine_id is null for materials (FK only references medicines table)
     if (b.items.length > 0) {
       const { error: itemsError } = await supabase.from("bill_items").insert(
-        b.items.map((it) => ({
-          bill_id: billId,
-          medicine_id: it.medicineId || null,
-          name: it.name,
-          quantity: it.quantity,
-          price: it.price,
-        }))
+        b.items.map((it) => {
+          const isMedicine = medicines.some((x) => x.id === it.medicineId);
+          return {
+            bill_id: billId,
+            medicine_id: isMedicine ? it.medicineId : null,
+            name: it.name,
+            quantity: it.quantity,
+            price: it.price,
+          };
+        })
       );
       if (itemsError) throw itemsError;
     }
 
-    // Deduct pharmacy stock
+    // Deduct pharmacy stock — medicines first, then materials
     for (const it of b.items) {
       if (!it.medicineId) continue;
       const med = medicines.find((x) => x.id === it.medicineId);
-      if (!med) continue;
-      await supabase
-        .from("medicines")
-        .update({ pharmacy_quantity: Math.max(0, med.pharmacyQuantity - it.quantity) })
-        .eq("id", it.medicineId);
+      if (med) {
+        await supabase
+          .from("medicines")
+          .update({ pharmacy_quantity: Math.max(0, med.pharmacyQuantity - it.quantity) })
+          .eq("id", it.medicineId);
+        continue;
+      }
+      const mat = materials.find((x) => x.id === it.medicineId);
+      if (mat) {
+        await supabase
+          .from("materials")
+          .update({ pharmacy_quantity: Math.max(0, mat.pharmacyQuantity - it.quantity) })
+          .eq("id", it.medicineId);
+      }
     }
 
     const newBill: Bill = {
@@ -416,7 +428,6 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
           : m;
       })
     );
-    // Also deduct material stock if any bill items are materials
     setMaterials((prev) =>
       prev.map((m) => {
         const it = b.items.find((i) => i.medicineId === m.id);
@@ -425,15 +436,6 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
           : m;
       })
     );
-    for (const it of b.items) {
-      if (!it.medicineId) continue;
-      const mat = materials.find((x) => x.id === it.medicineId);
-      if (!mat) continue;
-      await supabase
-        .from("materials")
-        .update({ pharmacy_quantity: Math.max(0, mat.pharmacyQuantity - it.quantity) })
-        .eq("id", it.medicineId);
-    }
 
     return newBill;
   };

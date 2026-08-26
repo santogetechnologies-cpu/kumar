@@ -6,14 +6,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Package, FlaskConical, ShoppingCart, GitBranch, Calendar, AlertTriangle, LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText } from "lucide-react";
-import { Package, FlaskConical, ShoppingCart, Calendar, AlertTriangle, LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+} from "recharts";
+import {
+  Package, FlaskConical, ShoppingCart, Calendar, AlertTriangle,
+  LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText, GitCompare
+} from "lucide-react";
 import { toast } from "sonner";
 import { InvoiceDialog, type InvoiceRow, type InvoiceMeta, rowTaxable, rowGst } from "./InvoiceDialog";
 import { BulkUploadDialog } from "./BulkUploadDialog";
 
-type SubTab = "dashboard" | "medicines" | "materials" | "purchases" | "movements" | "expiry" | "lowstock";
+type SubTab = "dashboard" | "medicines" | "materials" | "purchases" | "movements" | "stock" | "expiry" | "lowstock";
 
 const subTabs: { id: SubTab; label: string; icon: any }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -21,6 +26,7 @@ const subTabs: { id: SubTab; label: string; icon: any }[] = [
   { id: "materials", label: "Materials", icon: FlaskConical },
   { id: "purchases", label: "Purchases", icon: ShoppingCart },
   { id: "movements", label: "Movements", icon: ArrowLeftRight },
+  { id: "stock", label: "Stock Comparison", icon: GitCompare },
   { id: "expiry", label: "Expiry", icon: Calendar },
   { id: "lowstock", label: "Low Stock", icon: AlertTriangle },
 ];
@@ -54,6 +60,7 @@ export function InventoryTab() {
       {sub === "materials" && <MaterialsMgmt />}
       {sub === "purchases" && <PurchasesMgmt />}
       {sub === "movements" && <MovementsView />}
+      {sub === "stock" && <StockComparisonView />}
       {sub === "expiry" && <ExpiryView />}
       {sub === "lowstock" && <LowStockView />}
     </div>
@@ -62,39 +69,217 @@ export function InventoryTab() {
 
 function InvDashboard() {
   const { medicines, materials, purchases } = usePharmacy();
-  const lowStock = medicines.filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= m.minLevel).length;
+  const allItems = [...medicines, ...materials];
+  const lowStock = allItems.filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= m.minLevel).length;
   const now = Date.now();
   const expiry = medicines.filter((m) => new Date(m.expiry).getTime() - now < 60 * 86400000).length;
-  const outOfStock = medicines.filter((m) => (m.mainQuantity + m.pharmacyQuantity) === 0).length;
+  const outOfStock = allItems.filter((m) => (m.mainQuantity + m.pharmacyQuantity) === 0).length;
   const thisMonth = purchases.filter((p) => new Date(p.createdAt).getMonth() === new Date().getMonth()).length;
+  const totalMainStock = allItems.reduce((s, m) => s + m.mainQuantity, 0);
+  const totalPharmacyStock = allItems.reduce((s, m) => s + m.pharmacyQuantity, 0);
+  const stockValue = allItems.reduce((s, m) => s + (m.mainQuantity + m.pharmacyQuantity) * m.price, 0);
 
   const cards = [
     { label: "Total Medicines", value: medicines.length, icon: Package, tone: "primary" },
-    { label: "Service Materials", value: materials.length, icon: FlaskConical, tone: "success" },
+    { label: "Service Materials", value: materials.length, icon: FlaskConical, tone: "primary" },
+    { label: "Total Stock Value", value: `₹${stockValue.toFixed(0)}`, icon: ShoppingCart, tone: "success" },
     { label: "Purchases This Month", value: thisMonth, icon: ShoppingCart, tone: "success" },
     { label: "Low Stock Alerts", value: lowStock, icon: AlertTriangle, tone: "warning" },
     { label: "Expiry Alerts (60d)", value: expiry, icon: Calendar, tone: "warning" },
     { label: "Out of Stock", value: outOfStock, icon: Package, tone: "destructive" },
+    { label: "Main Inventory", value: totalMainStock, icon: Package, tone: "primary" },
+    { label: "Pharmacy Stock", value: totalPharmacyStock, icon: FlaskConical, tone: "success" },
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {cards.map((c) => {
-        const Icon = c.icon;
-        const bg = c.tone === "primary" ? "bg-primary/10 text-primary"
-          : c.tone === "success" ? "bg-success/10 text-success"
-          : c.tone === "warning" ? "bg-warning/10 text-warning"
-          : "bg-destructive/10 text-destructive";
-        return (
-          <Card key={c.label} className="p-5">
-            <div className="flex justify-between items-start">
-              <div className="text-sm text-muted-foreground">{c.label}</div>
-              <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${bg}`}><Icon className="h-5 w-5" /></div>
-            </div>
-            <div className="text-4xl font-bold mt-3">{c.value}</div>
-          </Card>
-        );
-      })}
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {cards.map((c) => {
+          const Icon = c.icon;
+          const bg = c.tone === "primary" ? "bg-primary/10 text-primary"
+            : c.tone === "success" ? "bg-success/10 text-success"
+            : c.tone === "warning" ? "bg-warning/10 text-warning"
+            : "bg-destructive/10 text-destructive";
+          return (
+            <Card key={c.label} className="p-5">
+              <div className="flex justify-between items-start">
+                <div className="text-sm text-muted-foreground">{c.label}</div>
+                <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${bg}`}><Icon className="h-5 w-5" /></div>
+              </div>
+              <div className="text-4xl font-bold mt-3">{c.value}</div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Mini stock overview bar chart */}
+      <Card className="p-5">
+        <h3 className="font-semibold mb-4 flex items-center gap-2">
+          <GitCompare className="h-4 w-4 text-muted-foreground" /> Main vs Pharmacy Stock — Top 10 Medicines
+        </h3>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={medicines.slice(0, 10).map(m => ({ name: m.name.length > 14 ? m.name.slice(0, 14) + "…" : m.name, Main: m.mainQuantity, Pharmacy: m.pharmacyQuantity }))}
+              margin={{ left: -10 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={60} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="Main" fill="#2563eb" radius={[4, 4, 0, 0]} name="Main Stock" />
+              <Bar dataKey="Pharmacy" fill="#16a34a" radius={[4, 4, 0, 0]} name="Pharmacy Stock" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ---- Stock Comparison Sub-Tab ---- */
+function StockComparisonView() {
+  const { medicines, materials } = usePharmacy();
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<"all" | "medicine" | "material">("all");
+
+  const allItems = [
+    ...medicines.map(m => ({ ...m, _type: "medicine" as const })),
+    ...materials.map(m => ({ ...m, _type: "material" as const })),
+  ];
+
+  const filtered = allItems.filter(m => {
+    const matchQ = m.name.toLowerCase().includes(q.toLowerCase());
+    const matchF = filter === "all" || m._type === filter;
+    return matchQ && matchF;
+  });
+
+  // Sort by total stock descending for chart
+  const chartData = filtered
+    .sort((a, b) => (b.mainQuantity + b.pharmacyQuantity) - (a.mainQuantity + a.pharmacyQuantity))
+    .slice(0, 20)
+    .map(m => ({
+      name: m.name.length > 14 ? m.name.slice(0, 14) + "…" : m.name,
+      Main: m.mainQuantity,
+      Pharmacy: m.pharmacyQuantity,
+      type: m._type,
+    }));
+
+  const totalMain = filtered.reduce((s, m) => s + m.mainQuantity, 0);
+  const totalPharmacy = filtered.reduce((s, m) => s + m.pharmacyQuantity, 0);
+  const lowTransfer = filtered.filter(m => m.pharmacyQuantity <= m.minLevel && m.mainQuantity > 0).length;
+
+  return (
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card className="p-5">
+          <div className="text-sm text-muted-foreground">Total SKUs</div>
+          <div className="text-4xl font-bold mt-2">{filtered.length}</div>
+        </Card>
+        <Card className="p-5 border-blue-200 bg-blue-50/30 dark:bg-blue-950/20">
+          <div className="text-sm text-muted-foreground">Main Inventory Stock</div>
+          <div className="text-4xl font-bold mt-2 text-blue-600">{totalMain.toLocaleString()}</div>
+          <div className="text-xs text-muted-foreground mt-1">units in warehouse</div>
+        </Card>
+        <Card className="p-5 border-green-200 bg-green-50/30 dark:bg-green-950/20">
+          <div className="text-sm text-muted-foreground">Pharmacy Dispensing Stock</div>
+          <div className="text-4xl font-bold mt-2 text-green-600">{totalPharmacy.toLocaleString()}</div>
+          <div className="text-xs text-muted-foreground mt-1">units ready to dispense</div>
+        </Card>
+      </div>
+
+      {lowTransfer > 0 && (
+        <div className="rounded-xl border border-warning/40 bg-warning/5 p-4 flex items-center gap-3">
+          <AlertTriangle className="h-5 w-5 text-warning shrink-0" />
+          <div>
+            <div className="font-semibold text-warning">{lowTransfer} item{lowTransfer > 1 ? "s" : ""} need transfer</div>
+            <div className="text-sm text-muted-foreground">Pharmacy stock is below minimum level but main stock is available. Consider transferring.</div>
+          </div>
+        </div>
+      )}
+
+      {/* Chart */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <h3 className="font-semibold flex items-center gap-2">
+            <GitCompare className="h-4 w-4 text-muted-foreground" /> Main vs Pharmacy Stock Comparison (Top 20)
+          </h3>
+          <div className="flex gap-2">
+            {(["all", "medicine", "material"] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${filter === f ? "bg-primary text-primary-foreground border-primary" : "hover:bg-accent border-transparent"}`}
+              >
+                {f === "all" ? "All Items" : f === "medicine" ? "Medicines" : "Materials"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ left: -10 }}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" height={65} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="Main" fill="#2563eb" radius={[4, 4, 0, 0]} name="Main Stock" />
+              <Bar dataKey="Pharmacy" fill="#16a34a" radius={[4, 4, 0, 0]} name="Pharmacy Stock" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+
+      {/* Detail table */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+          <h3 className="font-semibold">Stock Detail Table</h3>
+          <div className="relative w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items..." className="pl-9 h-9" />
+          </div>
+        </div>
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                {["Name", "Type", "Category", "Main Stock", "Pharmacy Stock", "Total", "Min Level", "Status"].map(h => (
+                  <th key={h} className="text-left px-3 py-2.5 font-semibold text-muted-foreground text-xs uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={8} className="text-center py-6 text-muted-foreground">No items found</td></tr>
+              )}
+              {filtered.map(m => {
+                const total = m.mainQuantity + m.pharmacyQuantity;
+                const status = total === 0 ? "Out" : m.pharmacyQuantity <= m.minLevel ? (m.mainQuantity > 0 ? "Needs Transfer" : "Critical") : "OK";
+                const statusColor = status === "Out" ? "destructive" : status === "Critical" ? "destructive" : status === "Needs Transfer" ? "secondary" : "default";
+                return (
+                  <tr key={m.id} className="border-t">
+                    <td className="px-3 py-2.5 font-semibold">{m.name}</td>
+                    <td className="px-3 py-2.5">
+                      <Badge variant="outline" className="text-[10px]">{m._type}</Badge>
+                    </td>
+                    <td className="px-3 py-2.5 text-muted-foreground">{m.category}</td>
+                    <td className="px-3 py-2.5 font-semibold text-blue-600">{m.mainQuantity}</td>
+                    <td className="px-3 py-2.5 font-semibold text-green-600">{m.pharmacyQuantity}</td>
+                    <td className="px-3 py-2.5 font-bold">{total}</td>
+                    <td className="px-3 py-2.5 text-muted-foreground">{m.minLevel}</td>
+                    <td className="px-3 py-2.5">
+                      <Badge variant={statusColor as any}>{status}</Badge>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -258,7 +443,7 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
           </tbody>
         </table>
       </div>
-      
+
       <Dialog open={!!transferId} onOpenChange={(o) => { if (!o) setTransferId(null); }}>
         <DialogContent>
           <DialogHeader>
@@ -292,12 +477,12 @@ function PurchasesMgmt() {
       for (const r of rows) {
         const cost = rowTaxable(r) + rowGst(r);
         const discountAmt = (r.ptr * r.qty * r.disPct) / 100;
-        await addPurchase({ 
-          item: r.product, 
-          supplier: meta.supplier, 
-          quantity: r.qty, 
-          received: 0, 
-          cost: +cost.toFixed(2), 
+        await addPurchase({
+          item: r.product,
+          supplier: meta.supplier,
+          quantity: r.qty,
+          received: 0,
+          cost: +cost.toFixed(2),
           status: "pending",
           invoice_no: meta.invoiceNo,
           free_quantity: r.free,
@@ -313,8 +498,8 @@ function PurchasesMgmt() {
     }
   };
 
-  const filtered = purchases.filter(p => 
-    p.item.toLowerCase().includes(q.toLowerCase()) || 
+  const filtered = purchases.filter(p =>
+    p.item.toLowerCase().includes(q.toLowerCase()) ||
     p.supplier.toLowerCase().includes(q.toLowerCase()) ||
     (p.invoice_no && p.invoice_no.toLowerCase().includes(q.toLowerCase()))
   );
@@ -332,7 +517,7 @@ function PurchasesMgmt() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by item, supplier, or invoice no..." className="pl-9 max-w-md" />
       </div>
-      
+
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
@@ -379,8 +564,6 @@ function PurchasesMgmt() {
     </Card>
   );
 }
-
-
 
 function MovementsView() {
   const { bills } = usePharmacy();
@@ -442,16 +625,23 @@ function ExpiryView() {
 }
 
 function LowStockView() {
-  const { medicines } = usePharmacy();
-  const rows = medicines.filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= m.minLevel).sort((a, b) => (a.mainQuantity + a.pharmacyQuantity) - (b.mainQuantity + b.pharmacyQuantity));
+  const { medicines, materials } = usePharmacy();
+  const allItems = [
+    ...medicines.map(m => ({ ...m, _type: "medicine" as const })),
+    ...materials.map(m => ({ ...m, _type: "material" as const })),
+  ];
+  const rows = allItems
+    .filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= m.minLevel)
+    .sort((a, b) => (a.mainQuantity + a.pharmacyQuantity) - (b.mainQuantity + b.pharmacyQuantity));
+
   return (
     <Card className="p-5">
       <h2 className="text-lg font-semibold mb-3 flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-warning" /> Stock Level Monitoring</h2>
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">
-          <thead className="bg-muted/50"><tr>{["Medicine", "Category", "Total Stock", "Min", "Status", "Price"].map((h) => <th key={h} className="text-left px-3 py-2.5 font-semibold text-xs uppercase text-muted-foreground">{h}</th>)}</tr></thead>
+          <thead className="bg-muted/50"><tr>{["Item", "Type", "Category", "Total Stock", "Min", "Status", "Price"].map((h) => <th key={h} className="text-left px-3 py-2.5 font-semibold text-xs uppercase text-muted-foreground">{h}</th>)}</tr></thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={6} className="text-center py-6 text-muted-foreground">All stock levels adequate</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={7} className="text-center py-6 text-muted-foreground">All stock levels adequate</td></tr>}
             {rows.map((m) => {
               const total = m.mainQuantity + m.pharmacyQuantity;
               const status = total === 0 ? "Out" : total <= m.minLevel * 0.25 ? "Critical" : "Low";
@@ -459,6 +649,7 @@ function LowStockView() {
               return (
                 <tr key={m.id} className="border-t">
                   <td className="px-3 py-2.5 font-semibold">{m.name}</td>
+                  <td className="px-3 py-2.5"><Badge variant="outline" className="text-[10px]">{m._type}</Badge></td>
                   <td className="px-3 py-2.5">{m.category}</td>
                   <td className="px-3 py-2.5 font-bold text-destructive">{total}</td>
                   <td className="px-3 py-2.5">{m.minLevel}</td>
