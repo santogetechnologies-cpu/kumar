@@ -167,6 +167,7 @@ export function DispensingTab() {
   /* Dispense */
   const dispense = async () => {
     if (!patientName.trim()) { toast.error("Enter patient name"); return; }
+    if (!doctorName.trim()) { toast.error("Please select a prescribing doctor"); return; }
     if (!cart.length) { toast.error("Cart is empty"); return; }
     try {
       const selectedDoc = doctors.find(d => d.name === doctorName);
@@ -187,6 +188,7 @@ export function DispensingTab() {
       setCart([]);
       setPatientName("");
       setPatientId("");
+      setDoctorName("");
       if (autoPrint) setShowPrintDialog(true);
     } catch (e: any) {
       toast.error(e.message);
@@ -328,13 +330,14 @@ export function DispensingTab() {
                 <Input id="pid" value={patientId} onChange={e => setPatientId(e.target.value)} placeholder="P1234" className="h-10 mt-1" />
               </div>
               <div>
-                <Label>Doctor (optional)</Label>
+                <Label>Doctor *</Label>
                 <select
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1"
                   value={doctorName}
                   onChange={e => setDoctorName(e.target.value)}
+                  required
                 >
-                  <option value="">— Select Doctor —</option>
+                  <option value="">— Select Doctor * —</option>
                   {doctors.filter(d => d.active).map(d => (
                     <option key={d.id} value={d.name}>{d.name}{d.specialty ? ` (${d.specialty})` : ""}</option>
                   ))}
