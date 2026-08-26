@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,7 +48,6 @@ interface Props {
   title: string;
   onSave: (rows: InvoiceRow[], meta: InvoiceMeta) => void;
   existingProducts?: string[];
-  /** If true, product must be chosen from dropdown of existingProducts */
   restrictToExisting?: boolean;
 }
 
@@ -60,26 +59,24 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
   });
   const [rows, setRows] = useState<InvoiceRow[]>([emptyRow()]);
 
-  const update = (i: number, patch: Partial<InvoiceRow>) =>
-    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-
-  const addRow = () => setRows((rs) => [...rs, emptyRow()]);
-  const removeRow = (i: number) => {
-    if (rows.length === 1) return;
-    setRows((rs) => rs.filter((_, idx) => idx !== i));
-  };
+  const updateMeta = (patch: Partial<InvoiceMeta>) => setMeta(m => ({ ...m, ...patch }));
+  const updateRow = (i: number, patch: Partial<InvoiceRow>) =>
+    setRows(rs => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const addRow = () => setRows(rs => [...rs, emptyRow()]);
+  const removeRow = (i: number) => { if (rows.length > 1) setRows(rs => rs.filter((_, idx) => idx !== i)); };
 
   const totals = useMemo(() => {
-    const subtotal = rows.reduce((s, r) => s + r.ptr * r.qty, 0);
-    const discount = rows.reduce((s, r) => s + (r.ptr * r.qty * r.disPct) / 100, 0);
     const taxable = rows.reduce((s, r) => s + rowTaxable(r), 0);
     const gst = rows.reduce((s, r) => s + rowGst(r), 0);
     const net = taxable + gst;
-    const roundOff = Math.round(net) - net;
-    const billAmount = Math.round(net);
-    const paidItems = rows.reduce((s, r) => s + (r.qty || 0), 0);
-    const freeItems = rows.reduce((s, r) => s + (r.free || 0), 0);
-    return { subtotal, discount, taxable, gst, net, roundOff, billAmount, paidItems, freeItems };
+    return {
+      subtotal: rows.reduce((s, r) => s + r.ptr * r.qty, 0),
+      discount: rows.reduce((s, r) => s + (r.ptr * r.qty * r.disPct) / 100, 0),
+      taxable, gst, net,
+      roundOff: Math.round(net) - net,
+      billAmount: Math.round(net),
+      totalQty: rows.reduce((s, r) => s + r.qty + r.free, 0),
+    };
   }, [rows]);
 
   const reset = () => {
@@ -89,126 +86,111 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
 
   const submit = () => {
     if (!meta.supplier.trim()) { toast.error("Supplier is required"); return; }
-    const valid = rows.filter((r) => r.product.trim() && r.batch.trim() && r.exp && (r.qty > 0 || r.free > 0));
-    if (valid.length === 0) { toast.error("Add at least one valid row — Product, Batch, Expiry and Qty are required"); return; }
+    const valid = rows.filter(r => r.product.trim() && r.batch.trim() && r.exp && (r.qty > 0 || r.free > 0));
+    if (!valid.length) { toast.error("At least one row needs: Product, Batch, Expiry, Qty"); return; }
     onSave(valid, meta);
     reset();
     onOpenChange(false);
   };
 
-  const datalistId = "inv-products-" + title.replace(/\s+/g, "");
+  const dlId = "dl-" + title.replace(/\s+/g, "");
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
-      <DialogContent className="max-w-[95vw] w-[1300px] max-h-[92vh] overflow-y-auto flex flex-col gap-4">
+    <Dialog open={open} onOpenChange={o => { if (!o) reset(); onOpenChange(o); }}>
+      <DialogContent
+        style={{ maxWidth: "min(95vw, 1350px)", maxHeight: "90vh", overflowY: "auto", width: "100%" }}
+      >
         <DialogHeader>
           <DialogTitle className="text-xl">{title}</DialogTitle>
         </DialogHeader>
 
-        {/* Header Meta */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* ---- Meta header ---- */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginTop: "8px" }}>
           <div>
-            <Label className="text-xs">Supplier <span className="text-destructive">*</span></Label>
-            <Input className="mt-1" value={meta.supplier} onChange={(e) => setMeta({ ...meta, supplier: e.target.value })} placeholder="Supplier name" />
+            <Label style={{ fontSize: "12px" }}>Supplier *</Label>
+            <Input style={{ marginTop: 4 }} value={meta.supplier} onChange={e => updateMeta({ supplier: e.target.value })} placeholder="Supplier name" />
           </div>
           <div>
-            <Label className="text-xs">Invoice No.</Label>
-            <Input className="mt-1" value={meta.invoiceNo} onChange={(e) => setMeta({ ...meta, invoiceNo: e.target.value })} placeholder="INV-001" />
+            <Label style={{ fontSize: "12px" }}>Invoice No.</Label>
+            <Input style={{ marginTop: 4 }} value={meta.invoiceNo} onChange={e => updateMeta({ invoiceNo: e.target.value })} placeholder="INV-001" />
           </div>
           <div>
-            <Label className="text-xs">Invoice Date</Label>
-            <Input className="mt-1" type="date" value={meta.invoiceDate} onChange={(e) => setMeta({ ...meta, invoiceDate: e.target.value })} />
+            <Label style={{ fontSize: "12px" }}>Invoice Date</Label>
+            <Input style={{ marginTop: 4 }} type="date" value={meta.invoiceDate} onChange={e => updateMeta({ invoiceDate: e.target.value })} />
           </div>
           <div>
-            <Label className="text-xs">Payment Mode</Label>
+            <Label style={{ fontSize: "12px" }}>Payment Mode</Label>
             <select
-              className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              style={{ marginTop: 4, display: "flex", height: "40px", width: "100%", borderRadius: "6px", border: "1px solid hsl(var(--input))", background: "hsl(var(--background))", padding: "0 12px", fontSize: "14px" }}
               value={meta.paymentMode}
-              onChange={(e) => setMeta({ ...meta, paymentMode: e.target.value })}
+              onChange={e => updateMeta({ paymentMode: e.target.value })}
             >
               <option>Cash</option><option>UPI</option><option>Card</option><option>Credit</option><option>Cheque</option>
             </select>
           </div>
         </div>
 
-        {/* Datalist for autocomplete */}
-        {existingProducts && existingProducts.length > 0 && (
-          <datalist id={datalistId}>
-            {existingProducts.map((p) => <option key={p} value={p} />)}
+        {/* autocomplete datalist */}
+        {existingProducts?.length ? (
+          <datalist id={dlId}>
+            {existingProducts.map(p => <option key={p} value={p} />)}
           </datalist>
-        )}
+        ) : null}
 
-        {/* Table */}
-        <div className="border rounded-lg overflow-x-auto">
-          <table className="w-full text-sm" style={{ minWidth: "1200px" }}>
-            <thead className="bg-muted/60">
-              <tr className="text-xs text-left uppercase text-muted-foreground">
-                <th className="px-2 py-2 w-10">#</th>
-                <th className="px-2 py-2 min-w-[180px]">Product *</th>
-                <th className="px-2 py-2 w-20">HSN</th>
-                <th className="px-2 py-2 w-24">Batch *</th>
-                <th className="px-2 py-2 w-36">Expiry *</th>
-                <th className="px-2 py-2 w-24">MRP</th>
-                <th className="px-2 py-2 w-24">PTR</th>
-                <th className="px-2 py-2 w-20">Qty *</th>
-                <th className="px-2 py-2 w-20">Free</th>
-                <th className="px-2 py-2 w-20">Total</th>
-                <th className="px-2 py-2 w-24">Taxable</th>
-                <th className="px-2 py-2 w-20">Disc %</th>
-                <th className="px-2 py-2 w-20">GST %</th>
-                <th className="px-2 py-2 w-28">Net Amt</th>
-                <th className="px-2 py-2 w-10"></th>
+        {/* ---- Rows ---- */}
+        <div style={{ overflowX: "auto", border: "1px solid hsl(var(--border))", borderRadius: "8px", marginTop: "12px" }}>
+          <table style={{ width: "100%", minWidth: "1150px", fontSize: "13px", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "hsl(var(--muted))", textAlign: "left" }}>
+                {["#","Product *","HSN","Batch *","Expiry *","MRP","PTR","Qty *","Free","Total","Taxable","Disc %","GST %","Net Amt",""].map(h => (
+                  <th key={h} style={{ padding: "8px 6px", fontWeight: 600, fontSize: "11px", textTransform: "uppercase", color: "hsl(var(--muted-foreground))", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i} className="border-t hover:bg-muted/20">
-                  <td className="px-2 py-1.5 text-muted-foreground text-xs">{i + 1}</td>
-                  <td className="px-1 py-1">
-                    {restrictToExisting && existingProducts && existingProducts.length > 0 ? (
+                <tr key={i} style={{ borderTop: "1px solid hsl(var(--border))" }}>
+                  <td style={{ padding: "4px 6px", color: "hsl(var(--muted-foreground))", fontSize: "12px" }}>{i + 1}</td>
+                  <td style={{ padding: "2px 4px" }}>
+                    {restrictToExisting && existingProducts?.length ? (
                       <select
-                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
                         value={r.product}
-                        onChange={(e) => update(i, { product: e.target.value })}
+                        onChange={e => updateRow(i, { product: e.target.value })}
+                        style={{ height: "32px", minWidth: "160px", borderRadius: "6px", border: "1px solid hsl(var(--input))", padding: "0 8px", fontSize: "13px", background: "hsl(var(--background))", width: "100%" }}
                       >
                         <option value="">— Select —</option>
-                        {existingProducts.map((p) => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
+                        {existingProducts.map(p => <option key={p} value={p}>{p}</option>)}
                       </select>
                     ) : (
-                      <Input
-                        list={datalistId}
-                        className="h-8"
-                        style={{ minWidth: "160px" }}
+                      <input
+                        list={dlId}
                         value={r.product}
-                        onChange={(e) => update(i, { product: e.target.value })}
+                        onChange={e => updateRow(i, { product: e.target.value })}
                         placeholder="Product name"
+                        style={{ height: "32px", minWidth: "160px", borderRadius: "6px", border: "1px solid hsl(var(--input))", padding: "0 8px", fontSize: "13px", background: "hsl(var(--background))", color: "hsl(var(--foreground))", outline: "none", width: "100%" }}
                       />
                     )}
                   </td>
-                  <td className="px-1 py-1"><Input className="h-8 w-20" value={r.hsn} onChange={(e) => update(i, { hsn: e.target.value })} /></td>
-                  <td className="px-1 py-1"><Input className="h-8 w-24" value={r.batch} onChange={(e) => update(i, { batch: e.target.value })} /></td>
-                  <td className="px-1 py-1"><Input className="h-8 w-36" type="date" value={r.exp} onChange={(e) => update(i, { exp: e.target.value })} /></td>
-                  <td className="px-1 py-1"><Input className="h-8 w-24" type="number" min="0" step="0.01" value={r.mrp || ""} onChange={(e) => update(i, { mrp: parseFloat(e.target.value) || 0 })} /></td>
-                  <td className="px-1 py-1"><Input className="h-8 w-24" type="number" min="0" step="0.01" value={r.ptr || ""} onChange={(e) => update(i, { ptr: parseFloat(e.target.value) || 0 })} /></td>
-                  <td className="px-1 py-1"><Input className="h-8 w-20" type="number" min="0" value={r.qty || ""} onChange={(e) => update(i, { qty: parseInt(e.target.value) || 0 })} /></td>
-                  <td className="px-1 py-1"><Input className="h-8 w-20" type="number" min="0" value={r.free || ""} onChange={(e) => update(i, { free: parseInt(e.target.value) || 0 })} /></td>
-                  <td className="px-2 py-1.5 font-mono text-center">{(r.qty || 0) + (r.free || 0)}</td>
-                  <td className="px-2 py-1.5 font-mono text-right">{rowTaxable(r).toFixed(2)}</td>
-                  <td className="px-1 py-1"><Input className="h-8 w-20" type="number" min="0" max="100" value={r.disPct || ""} onChange={(e) => update(i, { disPct: parseFloat(e.target.value) || 0 })} /></td>
-                  <td className="px-1 py-1"><Input className="h-8 w-20" type="number" min="0" max="100" value={r.gstPct || ""} onChange={(e) => update(i, { gstPct: parseFloat(e.target.value) || 0 })} /></td>
-                  <td className="px-2 py-1.5 font-mono text-right font-semibold">₹{rowNet(r).toFixed(2)}</td>
-                  <td className="px-1 py-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                      disabled={rows.length === 1}
+                  <td style={{ padding: "2px 4px" }}><input style={cellStyle} value={r.hsn} onChange={e => updateRow(i, { hsn: e.target.value })} /></td>
+                  <td style={{ padding: "2px 4px" }}><input style={cellStyle} value={r.batch} onChange={e => updateRow(i, { batch: e.target.value })} /></td>
+                  <td style={{ padding: "2px 4px" }}><input type="date" style={{ ...cellStyle, width: "130px" }} value={r.exp} onChange={e => updateRow(i, { exp: e.target.value })} /></td>
+                  <td style={{ padding: "2px 4px" }}><input type="number" min="0" step="0.01" style={cellStyle} value={r.mrp || ""} onChange={e => updateRow(i, { mrp: parseFloat(e.target.value) || 0 })} /></td>
+                  <td style={{ padding: "2px 4px" }}><input type="number" min="0" step="0.01" style={cellStyle} value={r.ptr || ""} onChange={e => updateRow(i, { ptr: parseFloat(e.target.value) || 0 })} /></td>
+                  <td style={{ padding: "2px 4px" }}><input type="number" min="0" style={{ ...cellStyle, width: "70px" }} value={r.qty || ""} onChange={e => updateRow(i, { qty: parseInt(e.target.value) || 0 })} /></td>
+                  <td style={{ padding: "2px 4px" }}><input type="number" min="0" style={{ ...cellStyle, width: "70px" }} value={r.free || ""} onChange={e => updateRow(i, { free: parseInt(e.target.value) || 0 })} /></td>
+                  <td style={{ padding: "4px 6px", fontFamily: "monospace", textAlign: "center" }}>{r.qty + r.free}</td>
+                  <td style={{ padding: "4px 6px", fontFamily: "monospace", textAlign: "right" }}>{rowTaxable(r).toFixed(2)}</td>
+                  <td style={{ padding: "2px 4px" }}><input type="number" min="0" max="100" style={{ ...cellStyle, width: "65px" }} value={r.disPct || ""} onChange={e => updateRow(i, { disPct: parseFloat(e.target.value) || 0 })} /></td>
+                  <td style={{ padding: "2px 4px" }}><input type="number" min="0" max="100" style={{ ...cellStyle, width: "65px" }} value={r.gstPct || ""} onChange={e => updateRow(i, { gstPct: parseFloat(e.target.value) || 0 })} /></td>
+                  <td style={{ padding: "4px 6px", fontFamily: "monospace", textAlign: "right", fontWeight: 600 }}>₹{rowNet(r).toFixed(2)}</td>
+                  <td style={{ padding: "2px 4px" }}>
+                    <button
                       onClick={() => removeRow(i)}
+                      disabled={rows.length === 1}
+                      style={{ width: "30px", height: "30px", borderRadius: "6px", border: "none", cursor: rows.length === 1 ? "not-allowed" : "pointer", background: "transparent", color: "hsl(var(--destructive))", opacity: rows.length === 1 ? 0.3 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                      <Trash2 style={{ width: 14, height: 14 }} />
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -216,27 +198,50 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
           </table>
         </div>
 
-        {/* Bottom: Add Row + Totals */}
-        <div className="flex items-start justify-between gap-4">
+        {/* ---- Footer row ---- */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px", marginTop: "12px" }}>
           <Button variant="outline" onClick={addRow}>
             <Plus className="h-4 w-4 mr-1.5" /> Add Row
           </Button>
-          <div className="text-sm space-y-0.5 text-right min-w-[280px] border rounded-xl p-3 bg-muted/30">
-            <div className="flex justify-between gap-8"><span className="text-muted-foreground">Subtotal</span><span className="font-medium">₹{totals.subtotal.toFixed(2)}</span></div>
-            <div className="flex justify-between gap-8 text-success"><span>Discount</span><span>-₹{totals.discount.toFixed(2)}</span></div>
-            <div className="flex justify-between gap-8"><span className="text-muted-foreground">Taxable</span><span>₹{totals.taxable.toFixed(2)}</span></div>
-            <div className="flex justify-between gap-8"><span className="text-muted-foreground">GST</span><span>+₹{totals.gst.toFixed(2)}</span></div>
-            <div className="flex justify-between gap-8"><span className="text-muted-foreground">Round off</span><span>{totals.roundOff >= 0 ? "+" : ""}₹{totals.roundOff.toFixed(2)}</span></div>
-            <div className="flex justify-between gap-8 pt-1 border-t text-base font-bold"><span>Bill Amount</span><span>₹{totals.billAmount.toFixed(2)}</span></div>
-            <div className="text-xs text-muted-foreground pt-1">{totals.paidItems + totals.freeItems} items ({totals.paidItems} paid + {totals.freeItems} free)</div>
+          <div style={{ minWidth: "280px", border: "1px solid hsl(var(--border))", borderRadius: "10px", padding: "12px 16px", background: "hsl(var(--muted)/0.3)", fontSize: "13px" }}>
+            {[
+              ["Subtotal", `₹${totals.subtotal.toFixed(2)}`],
+              ["Discount", `-₹${totals.discount.toFixed(2)}`],
+              ["Taxable", `₹${totals.taxable.toFixed(2)}`],
+              ["GST", `+₹${totals.gst.toFixed(2)}`],
+              ["Round off", `${totals.roundOff >= 0 ? "+" : ""}₹${totals.roundOff.toFixed(2)}`],
+            ].map(([label, val]) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                <span style={{ color: "hsl(var(--muted-foreground))" }}>{label}</span>
+                <span>{val}</span>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0 2px", borderTop: "1px solid hsl(var(--border))", marginTop: "4px", fontWeight: 700, fontSize: "15px" }}>
+              <span>Bill Amount</span><span>₹{totals.billAmount.toFixed(2)}</span>
+            </div>
+            <div style={{ fontSize: "11px", color: "hsl(var(--muted-foreground))", marginTop: "4px" }}>
+              Total: {totals.totalQty} items
+            </div>
           </div>
         </div>
 
-        <DialogFooter>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px", paddingTop: "12px", borderTop: "1px solid hsl(var(--border))" }}>
           <Button variant="outline" onClick={() => { reset(); onOpenChange(false); }}>Cancel</Button>
           <Button onClick={submit}><Calculator className="h-4 w-4 mr-1.5" /> Save Invoice</Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
+
+const cellStyle: React.CSSProperties = {
+  height: "32px",
+  width: "90px",
+  borderRadius: "6px",
+  border: "1px solid hsl(var(--input))",
+  padding: "0 8px",
+  fontSize: "13px",
+  background: "hsl(var(--background))",
+  color: "hsl(var(--foreground))",
+  outline: "none",
+};
