@@ -18,17 +18,16 @@ export function BulkUploadDialog({ open, onOpenChange, type }: BulkUploadDialogP
   const [fileName, setFileName] = useState<string | null>(null);
 
   const downloadTemplate = () => {
-    // Template matching invoice format: name, category, batch, expiry, quantity, price, supplier
-    const headers = "name,category,batch,expiry,quantity,price,supplier\n";
+    const headers = "Product,HSN,Batch,Expiry,MRP,PTR,Qty,Free,DisPct,GstPct,Supplier\n";
     const example = type === "medicine" 
-      ? "Paracetamol 500mg,Tablet,B123,2026-12-31,100,1.5,PharmaCorp\n"
-      : "Surgical Mask,Surgical,SM99,2028-01-01,500,5.0,MedSupply\n";
+      ? "Paracetamol 500mg,3004,B123,2026-12-31,10.0,8.0,100,10,5,12,PharmaCorp\n"
+      : "Surgical Mask,9018,SM99,2028-01-01,5.0,4.0,500,50,0,5,MedSupply\n";
     
     const blob = new Blob([headers + example], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${type}_template.csv`;
+    a.download = `${type}_invoice_template.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -58,14 +57,18 @@ export function BulkUploadDialog({ open, onOpenChange, type }: BulkUploadDialogP
             row[h] = values[idx] || "";
           });
           
-          if (row.name && row.batch && row.expiry) {
+          if (row.product && row.batch && row.expiry) {
             parsedRows.push({
-              name: row.name,
-              category: row.category || (type === "medicine" ? "Tablet" : "Surgical"),
+              product: row.product,
+              hsn: row.hsn || "",
               batch: row.batch,
               expiry: row.expiry,
-              quantity: parseInt(row.quantity) || 0,
-              price: parseFloat(row.price) || 0,
+              mrp: parseFloat(row.mrp) || 0,
+              ptr: parseFloat(row.ptr) || 0,
+              qty: parseInt(row.qty) || 0,
+              free: parseInt(row.free) || 0,
+              disPct: parseFloat(row.dispct) || 0,
+              gstPct: parseFloat(row.gstpct) || 0,
               supplier: row.supplier || ""
             });
           }
@@ -88,14 +91,14 @@ export function BulkUploadDialog({ open, onOpenChange, type }: BulkUploadDialogP
       let imported = 0;
       for (const row of rows) {
         const payload = {
-          name: row.name,
-          category: row.category,
+          name: row.product,
+          category: type === "medicine" ? "Tablet" : "Surgical",
           batch: row.batch,
           expiry: row.expiry,
-          mainQuantity: row.quantity,
+          mainQuantity: row.qty + row.free,
           pharmacyQuantity: 0,
           minLevel: 10,
-          price: row.price,
+          price: row.mrp || row.ptr || 0,
           supplier: row.supplier
         };
 
