@@ -446,6 +446,50 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       .update({ status })
       .eq("id", id);
     if (error) throw error;
+
+    const purchase = purchases.find((p) => p.id === id);
+
+    // When marking as received, add quantity to main inventory
+    if (status === "received" && purchase) {
+      const qtyToAdd = purchase.quantity;
+
+      // Try medicines first (earliest expiry batch of matching name)
+      const matchingMeds = medicines
+        .filter((m) => m.name.toLowerCase() === purchase.item.toLowerCase())
+        .sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime());
+
+      if (matchingMeds.length > 0) {
+        const target = matchingMeds[0];
+        const newQty = target.mainQuantity + qtyToAdd;
+        await supabase
+          .from("medicines")
+          .update({ main_quantity: newQty })
+          .eq("id", target.id);
+        setMedicines((prev) =>
+          prev.map((m) => m.id === target.id ? { ...m, mainQuantity: newQty } : m)
+        );
+      } else {
+        // Try materials
+        const matchingMats = materials
+          .filter((m) => m.name.toLowerCase() === purchase.item.toLowerCase())
+          .sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime());
+
+        if (matchingMats.length > 0) {
+          const target = matchingMats[0];
+          const newQty = target.mainQuantity + qtyToAdd;
+          await supabase
+            .from("materials")
+            .update({ main_quantity: newQty })
+            .eq("id", target.id);
+          setMaterials((prev) =>
+            prev.map((m) => m.id === target.id ? { ...m, mainQuantity: newQty } : m)
+          );
+        }
+        // If no match found, the item hasn't been added to inventory yet
+        // The admin should add it via Medicine/Material invoice first
+      }
+    }
+
     setPurchases((prev) =>
       prev.map((p) => (p.id === id ? { ...p, status } : p))
     );
