@@ -6,8 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Minus, Trash2, ShoppingCart, Search, User, Receipt, CheckCircle2, AlertTriangle, CalendarClock } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingCart, Search, User, Receipt, CheckCircle2, AlertTriangle, CalendarClock, Printer } from "lucide-react";
 import { toast } from "sonner";
+import { BillPrintDialog } from "./BillPrintDialog";
+import type { Bill } from "@/lib/pharmacy-store";
 
 /* ---- Types ---- */
 interface CartItem {
@@ -30,10 +32,13 @@ interface ItemGroup {
 }
 
 export function DispensingTab() {
-  const { medicines, materials, doctors, addBill } = usePharmacy();
+  const { medicines, materials, doctors, addBill, autoPrint, printFormat } = usePharmacy();
   const [q, setQ] = useState("");
   const [activeTab, setActiveTab] = useState<"medicines" | "materials">("medicines");
   const [selectedGroup, setSelectedGroup] = useState<ItemGroup | null>(null);
+  
+  const [lastBill, setLastBill] = useState<Bill | null>(null);
+  const [showPrintDialog, setShowPrintDialog] = useState(false);
 
   // Prescription Form
   const [isDetailed, setIsDetailed] = useState(false);
@@ -197,10 +202,15 @@ export function DispensingTab() {
         paymentMethod: payment,
       });
       setLastBillId(bill.id);
+      setLastBill(bill);
       toast.success(`Dispensed! Bill ${bill.id}`);
       setCart([]);
       setPatientName("");
       setPatientId("");
+      
+      if (autoPrint) {
+        setShowPrintDialog(true);
+      }
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -534,13 +544,25 @@ export function DispensingTab() {
               <Receipt className="h-5 w-5 mr-2" /> Dispense & Bill
             </Button>
             {lastBillId && (
-              <div className="text-xs text-success flex items-center gap-1.5 justify-center">
-                <CheckCircle2 className="h-4 w-4" /> Last bill: <span className="font-mono font-semibold">{lastBillId}</span>
+              <div className="flex items-center justify-between text-sm mt-2">
+                <div className="text-success flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4" /> Last bill: <span className="font-mono font-semibold">{lastBillId}</span>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setShowPrintDialog(true)}>
+                  <Printer className="h-4 w-4 mr-1.5" /> Print
+                </Button>
               </div>
             )}
           </div>
         </Card>
       </div>
+
+      <BillPrintDialog 
+        open={showPrintDialog} 
+        onOpenChange={setShowPrintDialog} 
+        bill={lastBill} 
+        format={printFormat}
+      />
     </div>
   );
 }
