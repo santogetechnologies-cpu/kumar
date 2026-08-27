@@ -107,22 +107,28 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
             {/* Totals */}
             <div className="flex justify-end">
               <div className={`space-y-1.5 ${isThermal ? "w-full" : isLandscape ? "w-1/3" : "w-1/2"}`}>
-                <div className="flex justify-between text-sm text-gray-600">
-                  <span>Gross Total:</span>
-                  <span>₹{(bill.total / (1 - (bill.discountPct / 100) || 1)).toFixed(2)}</span>
-                </div>
-                {bill.discountPct > 0 && (
-                  <div className="flex justify-between text-sm text-gray-600">
-                    <span>Discount ({bill.discountPct}%):</span>
-                    <span className="text-green-600">
-                      -₹{((bill.total / (1 - bill.discountPct / 100)) * bill.discountPct / 100).toFixed(2)}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between font-bold text-lg border-t pt-2 mt-1">
-                  <span>Net Amount:</span>
-                  <span>₹{bill.total.toFixed(2)}</span>
-                </div>
+                {(() => {
+                  const grossTotal = bill.items.reduce((s, it) => s + it.price * it.quantity, 0);
+                  const discountAmt = grossTotal * (bill.discountPct || 0) / 100;
+                  return (
+                    <>
+                      <div className="flex justify-between text-sm text-gray-600">
+                        <span>Gross Total:</span>
+                        <span>₹{grossTotal.toFixed(2)}</span>
+                      </div>
+                      {(bill.discountPct || 0) > 0 && (
+                        <div className="flex justify-between text-sm text-gray-600">
+                          <span>Discount ({bill.discountPct}%):</span>
+                          <span className="text-green-600">-₹{discountAmt.toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-bold text-lg border-t pt-2 mt-1">
+                        <span>Net Amount:</span>
+                        <span>₹{bill.total.toFixed(2)}</span>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
 

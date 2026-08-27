@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import {
   Package, FlaskConical, ShoppingCart, Calendar, AlertTriangle,
-  LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText, GitCompare, Loader2
+  LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText, GitCompare, Loader2, ClipboardList
 } from "lucide-react";
 import { toast } from "sonner";
 import { InvoiceDialog, type InvoiceRow, type InvoiceMeta, rowTaxable, rowGst } from "./InvoiceDialog";
@@ -755,7 +755,7 @@ function ExpiryView() {
 }
 
 function LowStockView() {
-  const { medicines, materials } = usePharmacy();
+  const { medicines, materials, addPurchase } = usePharmacy();
   const allItems = [
     ...medicines.map(m => ({ ...m, _type: "medicine" as const })),
     ...materials.map(m => ({ ...m, _type: "material" as const })),
@@ -764,33 +764,144 @@ function LowStockView() {
     .filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= m.minLevel)
     .sort((a, b) => (a.mainQuantity + a.pharmacyQuantity) - (b.mainQuantity + b.pharmacyQuantity));
 
+  // Purchase order dialog state
+  const [poItem, setPoItem] = useState<any | null>(null);
+  const [poSupplier, setPoSupplier] = useState("");
+  const [poQty, setPoQty] = useState<number>(0);
+  const [poCost, setPoCost] = useState<number>(0);
+  const [poSaving, setPoSaving] = useState(false);
+
+  const openPO = (item: any) => {
+    setPoItem(item);
+    setPoSupplier(item.supplier || "");
+    setPoQty(item.minLevel * 2 || 10);
+    setPoCost(0);
+  };
+
+  const submitPO = async () => {
+    if (!poItem) return;
+    if (!poSupplier.trim()) { toast.error("Enter supplier name"); return; }
+    if (poQty <= 0) { toast.error("Enter quantity"); return; }
+    setPoSaving(true);
+    try {
+      await addPurchase({
+        item: poItem.name,
+        supplier: poSupplier.trim(),
+        quantity: poQty,
+        received: 0,
+        cost: poCost,
+        status: "pending",
+        invoice_no: "",
+        free_quantity: 0,
+        discount_amount: 0,
+        mrp: poItem.price,
+      });
+      toast.success(`Purchase order created for ${poItem.name}`);
+      setPoItem(null);
+    } catch (e: any) {
+      toast.error("Failed: " + e.message);
+    } finally {
+      setPoSaving(false);
+    }
+  };
+
   return (
-    <Card className="p-5">
-      <h2 className="text-lg font-semibold mb-3 flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-warning" /> Stock Level Monitoring</h2>
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50"><tr>{["Item", "Type", "Category", "Total Stock", "Min", "Status", "Price"].map((h) => <th key={h} className="text-left px-3 py-2.5 font-semibold text-xs uppercase text-muted-foreground">{h}</th>)}</tr></thead>
-          <tbody>
-            {rows.length === 0 && <tr><td colSpan={7} className="text-center py-6 text-muted-foreground">All stock levels adequate</td></tr>}
-            {rows.map((m) => {
-              const total = m.mainQuantity + m.pharmacyQuantity;
-              const status = total === 0 ? "Out" : total <= m.minLevel * 0.25 ? "Critical" : "Low";
-              const badge = status === "Out" ? "destructive" : status === "Critical" ? "destructive" : "secondary";
-              return (
-                <tr key={m.id} className="border-t">
-                  <td className="px-3 py-2.5 font-semibold">{m.name}</td>
-                  <td className="px-3 py-2.5"><Badge variant="outline" className="text-[10px]">{m._type}</Badge></td>
-                  <td className="px-3 py-2.5">{m.category}</td>
-                  <td className="px-3 py-2.5 font-bold text-destructive">{total}</td>
-                  <td className="px-3 py-2.5">{m.minLevel}</td>
-                  <td className="px-3 py-2.5"><Badge variant={badge as any}>{status}</Badge></td>
-                  <td className="px-3 py-2.5">₹{m.price}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+    <>
+      <Card className="p-5">
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-warning" /> Stock Level Monitoring</h2>
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50"><tr>{["Item", "Type", "Category", "Total Stock", "Min", "Status", "Price", ""].map((h) => <th key={h} className="text-left px-3 py-2.5 font-semibold text-xs uppercase text-muted-foreground">{h}</th>)}</tr></thead>
+            <tbody>
+              {rows.length === 0 && <tr><td colSpan={8} className="text-center py-6 text-muted-foreground">All stock levels adequate</td></tr>}
+              {rows.map((m) => {
+                const total = m.mainQuantity + m.pharmacyQuantity;
+                const status = total === 0 ? "Out" : total <= m.minLevel * 0.25 ? "Critical" : "Low";
+                const badge = status === "Out" ? "destructive" : status === "Critical" ? "destructive" : "secondary";
+                const showPO = status === "Low" || status === "Critical" || status === "Out";
+                return (
+                  <tr key={m.id} className="border-t">
+                    <td className="px-3 py-2.5 font-semibold">{m.name}</td>
+                    <td className="px-3 py-2.5"><Badge variant="outline" className="text-[10px]">{m._type}</Badge></td>
+                    <td className="px-3 py-2.5">{m.category}</td>
+                    <td className="px-3 py-2.5 font-bold text-destructive">{total}</td>
+                    <td className="px-3 py-2.5">{m.minLevel}</td>
+                    <td className="px-3 py-2.5"><Badge variant={badge as any}>{status}</Badge></td>
+                    <td className="px-3 py-2.5">₹{m.price}</td>
+                    <td className="px-3 py-2.5">
+                      {showPO && (
+                        <Button size="sm" variant="outline" className="text-xs whitespace-nowrap" onClick={() => openPO(m)}>
+                          <ClipboardList className="h-3.5 w-3.5 mr-1" /> Create PO
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Purchase Order Dialog */}
+      <Dialog open={!!poItem} onOpenChange={(o) => { if (!o && !poSaving) setPoItem(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-primary" /> Create Purchase Order
+            </DialogTitle>
+            <DialogDescription>
+              Raise a purchase order for <strong>{poItem?.name}</strong>. This will appear in the Purchases tab.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-1">
+              <div><strong>Item:</strong> {poItem?.name}</div>
+              <div><strong>Current Stock:</strong> <span className="text-destructive font-bold">{poItem ? poItem.mainQuantity + poItem.pharmacyQuantity : 0}</span> / min {poItem?.minLevel}</div>
+              <div><strong>MRP:</strong> ₹{poItem?.price}</div>
+            </div>
+            <div>
+              <Label>Supplier *</Label>
+              <Input
+                className="mt-1"
+                placeholder="e.g. Sun Pharma"
+                value={poSupplier}
+                onChange={e => setPoSupplier(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Order Quantity *</Label>
+                <Input
+                  className="mt-1"
+                  type="number"
+                  min={1}
+                  value={poQty || ""}
+                  onChange={e => setPoQty(parseInt(e.target.value) || 0)}
+                />
+              </div>
+              <div>
+                <Label>Total Cost (₹)</Label>
+                <Input
+                  className="mt-1"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  placeholder="0.00"
+                  value={poCost || ""}
+                  onChange={e => setPoCost(parseFloat(e.target.value) || 0)}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPoItem(null)} disabled={poSaving}>Cancel</Button>
+            <Button onClick={submitPO} disabled={poSaving}>
+              {poSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating…</> : <><ShoppingCart className="h-4 w-4 mr-2" /> Create Purchase Order</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
