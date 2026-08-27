@@ -143,17 +143,39 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
         {/* Global Print Styles */}
         <style dangerouslySetInnerHTML={{__html: `
           @media print {
-            body * { visibility: hidden; }
-            #printable-bill, #printable-bill * { visibility: visible; }
-            #printable-bill {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: ${isThermal ? "80mm" : isLandscape ? "297mm" : "210mm"} !important;
+            /* Hide everything else */
+            body * { visibility: hidden !important; }
+            
+            /* Reset dialog layout to prevent transform/positioning issues */
+            div[role="dialog"], 
+            div[role="dialog"] > div {
+              position: static !important;
+              transform: none !important;
+              max-width: none !important;
+              width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              border: none !important;
+              box-shadow: none !important;
             }
+
+            /* Make the bill visible and positioned correctly */
+            #printable-bill, #printable-bill * { 
+              visibility: visible !important; 
+            }
+            #printable-bill {
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: ${isThermal ? "80mm" : isLandscape ? "297mm" : "100%"} !important;
+              max-width: ${isLandscape ? "297mm" : "210mm"} !important;
+              margin: 0 !important;
+              padding: ${isThermal ? "4mm" : "12mm"} !important;
+            }
+
             @page {
               size: ${isThermal ? "80mm auto" : isLandscape ? "A4 landscape" : "A4 portrait"};
-              margin: ${isThermal ? "4mm" : "12mm"};
+              margin: 0;
             }
           }
         `}} />
