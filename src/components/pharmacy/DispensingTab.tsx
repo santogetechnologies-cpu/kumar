@@ -60,9 +60,11 @@ export function DispensingTab() {
     }
     const result: ItemGroup[] = [];
     map.forEach(batches => {
-      const sorted = [...batches].sort(
-        (a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime()
-      );
+      const sorted = [...batches].sort((a, b) => {
+        if (a.pharmacyQuantity > 0 && b.pharmacyQuantity <= 0) return -1;
+        if (a.pharmacyQuantity <= 0 && b.pharmacyQuantity > 0) return 1;
+        return new Date(a.expiry).getTime() - new Date(b.expiry).getTime();
+      });
       const totalPharmacyStock = sorted.reduce((s, m) => s + m.pharmacyQuantity, 0);
       result.push({ name: sorted[0].name, category: sorted[0].category, batches: sorted, totalPharmacyStock });
     });
@@ -416,8 +418,8 @@ export function DispensingTab() {
               const low = !out && g.batches.some(b => b.pharmacyQuantity <= b.minLevel);
               const firstBatch = g.batches[0];
               const isMat = (firstBatch as any)._isMaterial;
-              const inCart = cart.filter(x => g.batches.some(b => b.id === x.medicineId));
-              const cartQty = inCart.reduce((s, x) => s + x.quantity, 0);
+              const inCart = cart.find(x => x.name === g.name);
+              const cartQty = inCart ? inCart.requestedQty : 0;
 
               return (
                 <button
