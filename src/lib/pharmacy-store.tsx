@@ -82,6 +82,8 @@ export interface Purchase {
   free_quantity?: number;
   discount_amount?: number;
   mrp?: number;
+  batch?: string;
+  expiry?: string;
 }
 
 export interface Doctor {
@@ -239,7 +241,8 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       setPurchases((purRes.data ?? []).map(p => ({
         id: p.id, item: p.item, supplier: p.supplier, quantity: p.quantity,
         received: p.received, cost: p.cost, status: p.status, createdAt: p.created_at,
-        invoice_no: p.invoice_no, free_quantity: p.free_quantity, discount_amount: p.discount_amount, mrp: p.mrp
+        invoice_no: p.invoice_no, free_quantity: p.free_quantity, discount_amount: p.discount_amount, mrp: p.mrp,
+        batch: p.batch, expiry: p.expiry
       })));
       setDoctors(docRes.data ?? []);
       setExpenses((expRes.data ?? []).map((e: any) => ({
@@ -585,7 +588,9 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       invoice_no: p.invoice_no,
       free_quantity: p.free_quantity,
       discount_amount: p.discount_amount,
-      mrp: p.mrp
+      mrp: p.mrp,
+      batch: p.batch,
+      expiry: p.expiry
     });
     if (error) throw error;
     const newP: Purchase = { ...p, id, createdAt: new Date().toISOString() };
@@ -610,44 +615,79 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       .eq("id", id);
     if (error) throw error;
 
-    // When marking as received, add quantity to main inventory
     if (status === "received" && purchase.status !== "received") {
       const qtyToAdd = receivedAmt;
+      const b = purchase.batch?.trim();
+      const e = purchase.expiry?.trim();
 
-      // Try medicines first (earliest expiry batch of matching name)
-      const matchingMeds = medicines
-        .filter((m) => m.name.toLowerCase() === purchase.item.toLowerCase())
-        .sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime());
+      // Check Medicines
+      let templateMed = medicines.find(m => m.name.toLowerCase() === purchase.item.toLowerCase());
+      
+      if (templateMed) {
+        // We found a medicine with the same name. Let's see if the exact batch exists.
+        const exactBatch = b && e 
+          ? medicines.find(m => m.name.toLowerCase() === purchase.item.toLowerCase() && m.batch === b && m.expiry === e)
+          : undefined;
 
-      if (matchingMeds.length > 0) {
-        const target = matchingMeds[0];
-        const newQty = target.mainQuantity + qtyToAdd;
-        await supabase
-          .from("medicines")
-          .update({ main_quantity: newQty })
-          .eq("id", target.id);
-        setMedicines((prev) =>
-          prev.map((m) => m.id === target.id ? { ...m, mainQuantity: newQty } : m)
-        );
-      } else {
-        // Try materials
-        const matchingMats = materials
-          .filter((m) => m.name.toLowerCase() === purchase.item.toLowerCase())
-          .sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime());
-
-        if (matchingMats.length > 0) {
-          const target = matchingMats[0];
-          const newQty = target.mainQuantity + qtyToAdd;
-          await supabase
-            .from("materials")
-            .update({ main_quantity: newQty })
-            .eq("id", target.id);
-          setMaterials((prev) =>
-            prev.map((m) => m.id === target.id ? { ...m, mainQuantity: newQty } : m)
-          );
+        if (exactBatch) {
+          // Add to existing batch
+          const newQty = exactBatch.mainQuantity + qtyToAdd;
+          await supabase.from("medicines").update({ main_quantity: newQty }).eq("id", exactBatch.id);
+          setMedicines(prev => prev.map(m => m.id === exactBatch.id ? { ...m, mainQuantity: newQty } : m));
+        } else {
+          // Create a new batch using the template
+          const { data, error: insErr } = await supabase
+            .from("medicines")
+            .insert({
+              name: templateMed.name,
+              category: templateMed.category,
+              batch: b || `PO-${Date.now()}`,
+              expiry: e || new Date(Date.now() + 31536000000).toISOString(),
+              main_quantity: qtyToAdd,
+              pharmacy_quantity: 0,
+              min_level: templateMed.minLevel,
+              price: purchase.mrp || templateMed.price,
+              supplier: purchase.supplier
+            })
+            .select()
+            .single();
+          if (!insErr && data) {
+            setMedicines(prev => [rowToMedicine(data), ...prev]);
+          }
         }
-        // If no match found, the item hasn't been added to inventory yet
-        // The admin should add it via Medicine/Material invoice first
+      } else {
+        // Try Materials
+        let templateMat = materials.find(m => m.name.toLowerCase() === purchase.item.toLowerCase());
+        if (templateMat) {
+          const exactBatchMat = b && e 
+            ? materials.find(m => m.name.toLowerCase() === purchase.item.toLowerCase() && m.batch === b && m.expiry === e)
+            : undefined;
+
+          if (exactBatchMat) {
+            const newQty = exactBatchMat.mainQuantity + qtyToAdd;
+            await supabase.from("materials").update({ main_quantity: newQty }).eq("id", exactBatchMat.id);
+            setMaterials(prev => prev.map(m => m.id === exactBatchMat.id ? { ...m, mainQuantity: newQty } : m));
+          } else {
+            const { data, error: insErr } = await supabase
+              .from("materials")
+              .insert({
+                name: templateMat.name,
+                category: templateMat.category,
+                batch: b || `PO-${Date.now()}`,
+                expiry: e || new Date(Date.now() + 31536000000).toISOString(),
+                main_quantity: qtyToAdd,
+                pharmacy_quantity: 0,
+                min_level: templateMat.minLevel,
+                price: purchase.mrp || templateMat.price,
+                supplier: purchase.supplier
+              })
+              .select()
+              .single();
+            if (!insErr && data) {
+              setMaterials(prev => [rowToMaterial(data), ...prev]);
+            }
+          }
+        }
       }
     }
 

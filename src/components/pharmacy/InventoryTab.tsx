@@ -464,7 +464,12 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
             {grouped.length === 0 && <tr><td colSpan={9} className="text-center py-6 text-muted-foreground">No items</td></tr>}
             {grouped.map((g) => (
               <tr key={g.name} className="border-t hover:bg-muted/30">
-                <td className="px-3 py-2.5 font-semibold">{g.name}</td>
+                <td className="px-3 py-2.5 font-semibold flex items-center gap-2">
+                  {g.name}
+                  {(g.mainQuantity + g.pharmacyQuantity) === 0 && (
+                    <Badge variant="destructive" className="text-[10px] py-0 px-1 border-0 h-4 leading-none">Out of Stock</Badge>
+                  )}
+                </td>
                 <td className="px-3 py-2.5">{g.category}</td>
                 <td className="px-3 py-2.5">
                   <Badge variant="outline" className="font-mono">{g.batches.length} Batch{g.batches.length !== 1 ? 'es' : ''}</Badge>
@@ -573,7 +578,9 @@ function PurchasesMgmt() {
           invoice_no: meta.invoiceNo,
           free_quantity: r.free,
           discount_amount: +discountAmt.toFixed(2),
-          mrp: r.mrp
+          mrp: r.mrp,
+          batch: r.batch,
+          expiry: r.exp
         });
       }
       toast.success(`Purchase order created · ${rows.length} line${rows.length > 1 ? "s" : ""}`);
@@ -756,12 +763,46 @@ function MovementsView() {
 }
 
 function ExpiryView() {
-  const { medicines } = usePharmacy();
+  const { medicines, materials, updateMedicine, updateMaterial, addExpense } = usePharmacy();
+  const [discarding, setDiscarding] = useState<string | null>(null);
+
   const now = Date.now();
-  const withDays = medicines.map((m) => ({ ...m, days: Math.floor((new Date(m.expiry).getTime() - now) / 86400000) })).sort((a, b) => a.days - b.days);
+  const allItems = [
+    ...medicines.map(m => ({ ...m, _type: "medicine" as const })),
+    ...materials.map(m => ({ ...m, _type: "material" as const }))
+  ].filter(m => (m.mainQuantity + m.pharmacyQuantity) > 0);
+
+  const withDays = allItems.map((m) => ({ ...m, days: Math.floor((new Date(m.expiry).getTime() - now) / 86400000) })).sort((a, b) => a.days - b.days);
   const bucket = (d: number) => d < 0 ? "Expired" : d <= 7 ? "Within 7 Days" : d <= 30 ? "This Month" : d <= 60 ? "Next Month" : "Later";
   const groups = withDays.reduce<Record<string, typeof withDays>>((acc, m) => { const k = bucket(m.days); (acc[k] ||= []).push(m); return acc; }, {});
   const colors: Record<string, string> = { "Expired": "border-destructive/40 bg-destructive/5", "Within 7 Days": "border-warning/40 bg-warning/5", "This Month": "border-warning/40 bg-warning/5", "Next Month": "border-primary/40 bg-primary/5", "Later": "border-border" };
+
+  const handleDiscard = async (item: typeof withDays[0]) => {
+    const totalQty = item.mainQuantity + item.pharmacyQuantity;
+    const lossValue = totalQty * item.price;
+    if (!confirm(`Discard ${totalQty} units of ${item.name} (Batch ${item.batch})?\nThis will create an expense of ₹${lossValue.toFixed(2)}.`)) return;
+
+    setDiscarding(item.id);
+    try {
+      if (item._type === "medicine") {
+        await updateMedicine(item.id, { mainQuantity: 0, pharmacyQuantity: 0 });
+      } else {
+        await updateMaterial(item.id, { mainQuantity: 0, pharmacyQuantity: 0 });
+      }
+      await addExpense({
+        amount: lossValue,
+        category: "Wastage",
+        description: `Discarded Expired Batch ${item.batch} - ${item.name} (${totalQty} units)`,
+        date: new Date().toISOString().slice(0, 10)
+      });
+      toast.success("Batch discarded and expense logged.");
+    } catch (e: any) {
+      toast.error("Failed to discard: " + e.message);
+    } finally {
+      setDiscarding(null);
+    }
+  };
+
   return (
     <div className="space-y-3">
       {["Expired", "Within 7 Days", "This Month", "Next Month", "Later"].map((k) => groups[k] && (
@@ -770,11 +811,25 @@ function ExpiryView() {
             <div className="font-semibold">{k}</div>
             <Badge variant="outline">{groups[k].length} batches</Badge>
           </div>
-          <div className="grid gap-1.5 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-2">
             {groups[k].map((m) => (
-              <div key={m.id} className="text-sm flex justify-between">
-                <span className="font-medium">{m.name} <span className="text-muted-foreground font-mono">({m.batch})</span></span>
-                <span className="text-muted-foreground">{new Date(m.expiry).toLocaleDateString()}</span>
+              <div key={m.id} className="text-sm flex flex-col p-2 bg-background/50 rounded-lg border border-border/50">
+                <div className="flex justify-between font-medium">
+                  <span>{m.name} <span className="text-muted-foreground font-mono">({m.batch})</span></span>
+                  <span className="text-muted-foreground">{new Date(m.expiry).toLocaleDateString()}</span>
+                </div>
+                <div className="flex justify-between items-end mt-2">
+                  <span className="text-xs text-muted-foreground">{m.mainQuantity + m.pharmacyQuantity} in stock · Loss: ₹{((m.mainQuantity + m.pharmacyQuantity) * m.price).toFixed(2)}</span>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-7 text-xs text-destructive hover:bg-destructive/10"
+                    onClick={() => handleDiscard(m)}
+                    disabled={discarding === m.id}
+                  >
+                    {discarding === m.id ? "..." : "Discard"}
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
