@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { usePharmacy } from "@/lib/pharmacy-store";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
