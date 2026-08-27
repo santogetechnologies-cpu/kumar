@@ -14,14 +14,9 @@ import { BillPrintDialog } from "./BillPrintDialog";
 import type { Bill } from "@/lib/pharmacy-store";
 
 /* ── Types ── */
-interface CartItem {
-  medicineId: string;
+interface CartState {
   name: string;
-  batch: string;
-  expiry: string;
-  price: number;
-  quantity: number;
-  stock: number;
+  requestedQty: number;
 }
 
 interface ItemGroup {
@@ -39,7 +34,7 @@ export function DispensingTab() {
   const [showPrintDialog, setShowPrintDialog] = useState(false);
 
   /* Cart & Bill */
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartState, setCartState] = useState<CartState[]>([]);
   const [patientName, setPatientName] = useState("");
   const [patientId, setPatientId] = useState("");
   const [doctorName, setDoctorName] = useState("");
@@ -97,40 +92,24 @@ export function DispensingTab() {
     return out;
   };
 
-  /* Click item → add 1 unit via FIFO instantly */
+  /* Click item → add 1 unit instantly */
   const handleAddItem = (g: ItemGroup) => {
     if (g.totalPharmacyStock <= 0) {
       toast.error("No pharmacy stock available");
       return;
     }
-    const fifo = resolveFifo(g, 1);
-    if (!fifo.length) return;
 
-    setCart(c => {
-      let updated = [...c];
-      for (const { med, qty: bqty } of fifo) {
-        const ex = updated.find(x => x.medicineId === med.id);
-        if (ex) {
-          if (ex.quantity + bqty > med.pharmacyQuantity) {
-            toast.error(`Max stock: ${med.pharmacyQuantity}`);
-            return c;
-          }
-          updated = updated.map(x =>
-            x.medicineId === med.id ? { ...x, quantity: x.quantity + bqty } : x
-          );
-        } else {
-          updated.push({
-            medicineId: med.id,
-            name: g.batches.length > 1 ? `${med.name} [${med.batch}]` : med.name,
-            batch: med.batch,
-            expiry: med.expiry,
-            price: med.price,
-            quantity: bqty,
-            stock: med.pharmacyQuantity,
-          });
+    setCartState(c => {
+      const ex = c.find(x => x.name === g.name);
+      if (ex) {
+        if (ex.requestedQty + 1 > g.totalPharmacyStock) {
+          toast.error(`Max stock: ${g.totalPharmacyStock}`);
+          return c;
         }
+        return c.map(x => x.name === g.name ? { ...x, requestedQty: x.requestedQty + 1 } : x);
+      } else {
+        return [...c, { name: g.name, requestedQty: 1 }];
       }
-      return updated;
     });
 
     toast.success(`Added ${g.name}`);
@@ -139,29 +118,43 @@ export function DispensingTab() {
   };
 
   /* Cart qty controls */
-  const changeQty = (id: string, delta: number) => {
-    setCart(c => c.flatMap(x => {
-      if (x.medicineId !== id) return [x];
-      const nq = x.quantity + delta;
+  const changeQty = (name: string, delta: number) => {
+    setCartState(c => c.flatMap(x => {
+      if (x.name !== name) return [x];
+      const g = groups.find(g => g.name === name);
+      if (!g) return [];
+      const nq = x.requestedQty + delta;
       if (nq <= 0) return [];
-      if (nq > x.stock) { toast.error("Not enough pharmacy stock"); return [x]; }
-      return [{ ...x, quantity: nq }];
+      if (nq > g.totalPharmacyStock) { toast.error(`Max stock: ${g.totalPharmacyStock}`); return [x]; }
+      return [{ ...x, requestedQty: nq }];
     }));
   };
 
-  const setQtyDirect = (id: string, val: string) => {
+  const setQtyDirect = (name: string, val: string) => {
     const n = parseInt(val) || 0;
-    setCart(c => c.flatMap(x => {
-      if (x.medicineId !== id) return [x];
+    setCartState(c => c.flatMap(x => {
+      if (x.name !== name) return [x];
+      const g = groups.find(g => g.name === name);
+      if (!g) return [];
       if (n <= 0) return [];
-      if (n > x.stock) { toast.error("Not enough pharmacy stock"); return [x]; }
-      return [{ ...x, quantity: n }];
+      if (n > g.totalPharmacyStock) { toast.error(`Max stock: ${g.totalPharmacyStock}`); return [x]; }
+      return [{ ...x, requestedQty: n }];
     }));
   };
 
-  const removeItem = (id: string) => setCart(c => c.filter(x => x.medicineId !== id));
+  const removeItem = (name: string) => setCartState(c => c.filter(x => x.name !== name));
 
-  const grossTotal = cart.reduce((s, x) => s + x.price * x.quantity, 0);
+  const cart = useMemo(() => {
+    return cartState.map(c => {
+      const g = groups.find(g => g.name === c.name);
+      if (!g) return null;
+      const breakdown = resolveFifo(g, c.requestedQty);
+      const itemTotal = breakdown.reduce((s, b) => s + b.qty * b.med.price, 0);
+      return { ...c, group: g, breakdown, itemTotal };
+    }).filter(Boolean) as (CartState & { group: ItemGroup, breakdown: ReturnType<typeof resolveFifo>, itemTotal: number })[];
+  }, [cartState, groups]);
+
+  const grossTotal = cart.reduce((s, x) => s + x.itemTotal, 0);
   const total = grossTotal - (grossTotal * discountPct) / 100;
 
   /* Dispense */
@@ -171,12 +164,22 @@ export function DispensingTab() {
     if (!cart.length) { toast.error("Cart is empty"); return; }
     try {
       const selectedDoc = doctors.find(d => d.name === doctorName);
+
+      const billItems = cart.flatMap(c => 
+        c.breakdown.map(b => ({
+          medicineId: b.med.id, 
+          name: b.med.name, 
+          quantity: b.qty, 
+          price: b.med.price
+        }))
+      );
+
       const bill = await addBill({
         patientName: patientName.trim(),
         patientId: patientId.trim() || "P" + Math.floor(1000 + Math.random() * 9000),
         doctorId: selectedDoc?.id,
         doctorName,
-        items: cart.map(c => ({ medicineId: c.medicineId, name: c.name, quantity: c.quantity, price: c.price })),
+        items: billItems,
         total,
         discountPct,
         status: "paid",
@@ -185,7 +188,7 @@ export function DispensingTab() {
       setLastBillId(bill.id);
       setLastBill(bill);
       toast.success(`Dispensed! Bill ${bill.id}`);
-      setCart([]);
+      setCartState([]);
       setPatientName("");
       setPatientId("");
       setDoctorName("");
@@ -253,12 +256,12 @@ export function DispensingTab() {
               <div>
                 <h2 className="font-semibold text-lg tracking-tight">Prescription Cart</h2>
                 <p className="text-xs text-muted-foreground">
-                  {cart.length === 0 ? "No items yet" : `${cart.length} item${cart.length > 1 ? "s" : ""} · ${cart.reduce((s, x) => s + x.quantity, 0)} units`}
+                  {cart.length === 0 ? "No items yet" : `${cart.length} item${cart.length > 1 ? "s" : ""} · ${cart.reduce((s, x) => s + x.requestedQty, 0)} units`}
                 </p>
               </div>
             </div>
             {cart.length > 0 && (
-              <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs transition-colors rounded-lg" onClick={() => setCart([])}>
+              <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs transition-colors rounded-lg" onClick={() => setCartState([])}>
                 Clear all
               </Button>
             )}
@@ -274,41 +277,43 @@ export function DispensingTab() {
           ) : (
             <div className="space-y-3 flex-1 overflow-auto max-h-80 pr-1">
               {cart.map(item => (
-                <div key={item.medicineId} className="rounded-xl border border-border/50 p-3.5 bg-background/50 hover:bg-accent/30 transition-colors shadow-sm">
+                <div key={item.name} className="rounded-xl border border-border/50 p-3.5 bg-background/50 hover:bg-accent/30 transition-colors shadow-sm">
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <div className="min-w-0">
                       <div className="font-semibold text-sm truncate text-foreground/90">{item.name}</div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
-                        Batch: <span className="font-mono">{item.batch}</span> · Exp: {new Date(item.expiry).toLocaleDateString()} · ₹{item.price.toFixed(2)} ea
+                      <div className="text-[11px] text-muted-foreground mt-1 flex flex-col gap-0.5">
+                        {item.breakdown.map((b, i) => (
+                          <span key={i}>Batch {b.med.batch} <span className="opacity-50">|</span> {b.qty} × ₹{b.med.price.toFixed(2)}</span>
+                        ))}
                       </div>
                     </div>
                     <div className="font-bold text-sm shrink-0 text-brand-blue bg-brand-blue/10 px-2 py-0.5 rounded-md">
-                      ₹{(item.price * item.quantity).toFixed(2)}
+                      ₹{item.itemTotal.toFixed(2)}
                     </div>
                   </div>
                   {/* Qty controls */}
                   <div className="flex items-center justify-between border-t border-border/50 pt-2.5">
                     <div className="flex items-center gap-1 bg-background rounded-lg border shadow-sm p-0.5">
                       <Button size="icon" variant="ghost" className="h-7 w-7 rounded-md hover:bg-accent hover:text-accent-foreground"
-                        onClick={() => changeQty(item.medicineId, -1)}>
+                        onClick={() => changeQty(item.name, -1)}>
                         <Minus className="h-3.5 w-3.5" />
                       </Button>
                       <Input
                         type="number"
                         className="h-7 w-12 text-center px-1 text-sm font-bold border-0 bg-transparent focus-visible:ring-0 shadow-none"
-                        value={item.quantity}
-                        onChange={e => setQtyDirect(item.medicineId, e.target.value)}
+                        value={item.requestedQty}
+                        onChange={e => setQtyDirect(item.name, e.target.value)}
                         min={0}
                       />
                       <Button size="icon" variant="ghost" className="h-7 w-7 rounded-md hover:bg-accent hover:text-accent-foreground"
-                        onClick={() => changeQty(item.medicineId, 1)}>
+                        onClick={() => changeQty(item.name, 1)}>
                         <Plus className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                     <div className="flex items-center gap-3">
-                       <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Max {item.stock}</span>
+                       <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Max {item.group.totalPharmacyStock}</span>
                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
-                        onClick={() => removeItem(item.medicineId)}>
+                        onClick={() => removeItem(item.name)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>

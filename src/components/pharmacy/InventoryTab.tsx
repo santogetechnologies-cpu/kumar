@@ -378,42 +378,70 @@ function MaterialsMgmt() {
 function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: string) => void, type: "medicine" | "material" }) {
   const { medicines, materials, transferStock, canTransfer } = usePharmacy();
   const { user } = useAuth();
-  // transferId holds the NAME of the item (for FIFO across batches)
+  
   const [transferName, setTransferName] = useState<string | null>(null);
+  const [transferBatchId, setTransferBatchId] = useState<string>("auto");
   const [transferAmount, setTransferAmount] = useState<number>(0);
   const [transferring, setTransferring] = useState(false);
 
   const isPharmacist = user?.user_metadata?.role === "pharmacist" || user?.role === "pharmacist";
   const showTransfer = !isPharmacist || canTransfer;
 
-  // Get FIFO batches (same name, sorted by earliest expiry, with mainQuantity > 0)
-  const fifoBatches = transferName
-    ? rows
-        .filter(r => r.name.toLowerCase() === transferName.toLowerCase() && r.mainQuantity > 0)
-        .sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime())
+  const grouped = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const r of rows) {
+      if (!map.has(r.name)) map.set(r.name, []);
+      map.get(r.name)!.push(r);
+    }
+    return Array.from(map.entries()).map(([name, batches]) => {
+      const sorted = [...batches].sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime());
+      return {
+        id: sorted[0].id,
+        name,
+        category: sorted[0].category,
+        minLevel: sorted[0].minLevel,
+        price: sorted[0].price,
+        supplier: sorted[0].supplier,
+        batches: sorted,
+        mainQuantity: sorted.reduce((s, b) => s + b.mainQuantity, 0),
+        pharmacyQuantity: sorted.reduce((s, b) => s + b.pharmacyQuantity, 0),
+        earliestExpiry: sorted.length > 0 ? sorted[0].expiry : "",
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [rows]);
+
+  const activeBatches = transferName
+    ? grouped.find(g => g.name === transferName)?.batches.filter((b: any) => b.mainQuantity > 0) || []
     : [];
 
-  const totalMainStock = fifoBatches.reduce((s, r) => s + r.mainQuantity, 0);
+  const maxTransferAmount = transferBatchId === "auto" 
+    ? activeBatches.reduce((s: number, b: any) => s + b.mainQuantity, 0)
+    : (activeBatches.find((b: any) => b.id === transferBatchId)?.mainQuantity || 0);
 
   const handleTransfer = async () => {
     if (!transferName || transferAmount <= 0) return;
-    if (transferAmount > totalMainStock) {
-      toast.error(`Not enough main stock. Only ${totalMainStock} units available.`);
+    if (transferAmount > maxTransferAmount) {
+      toast.error(`Not enough main stock. Only ${maxTransferAmount} units available.`);
       return;
     }
     setTransferring(true);
     try {
-      // FIFO: deduct from earliest-expiry batches first
-      let remaining = transferAmount;
-      for (const batch of fifoBatches) {
-        if (remaining <= 0) break;
-        const take = Math.min(remaining, batch.mainQuantity);
-        await transferStock(type, batch.id, take);
-        remaining -= take;
+      if (transferBatchId === "auto") {
+        let remaining = transferAmount;
+        for (const batch of activeBatches) {
+          if (remaining <= 0) break;
+          const take = Math.min(remaining, batch.mainQuantity);
+          await transferStock(type, batch.id, take);
+          remaining -= take;
+        }
+        toast.success(`Transferred ${transferAmount} units to Pharmacy (FEFO)`);
+      } else {
+        await transferStock(type, transferBatchId, transferAmount);
+        toast.success(`Transferred ${transferAmount} units from selected batch`);
       }
-      toast.success(`Transferred ${transferAmount} units to Pharmacy (FIFO — earliest batch first)`);
       setTransferName(null);
       setTransferAmount(0);
+      setTransferBatchId("auto");
     } catch (e: any) {
       toast.error("Transfer failed: " + e.message);
     } finally {
@@ -427,37 +455,33 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
-              {["Name", "Category", "Batch", "Expiry", "Main Stock", "Pharmacy Stock", "Min", "Price", "Supplier", ""].map((h) => (
+              {["Name", "Category", "Batches", "Earliest Expiry", "Main Stock", "Pharmacy Stock", "Min", "Price", ""].map((h) => (
                 <th key={h} className="text-left px-3 py-2.5 font-semibold text-muted-foreground text-xs uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={10} className="text-center py-6 text-muted-foreground">No items</td></tr>}
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="px-3 py-2.5 font-semibold">{r.name}</td>
-                <td className="px-3 py-2.5">{r.category}</td>
-                <td className="px-3 py-2.5 font-mono text-xs">{r.batch}</td>
-                <td className="px-3 py-2.5">{new Date(r.expiry).toLocaleDateString()}</td>
-                <td className="px-3 py-2.5 font-semibold">{r.mainQuantity}</td>
-                <td className="px-3 py-2.5 font-semibold text-primary">{r.pharmacyQuantity}</td>
-                <td className="px-3 py-2.5">{r.minLevel}</td>
-                <td className="px-3 py-2.5">₹{r.price}</td>
-                <td className="px-3 py-2.5">{r.supplier || "-"}</td>
-                <td className="px-3 py-2.5 flex items-center gap-1">
+            {grouped.length === 0 && <tr><td colSpan={9} className="text-center py-6 text-muted-foreground">No items</td></tr>}
+            {grouped.map((g) => (
+              <tr key={g.name} className="border-t hover:bg-muted/30">
+                <td className="px-3 py-2.5 font-semibold">{g.name}</td>
+                <td className="px-3 py-2.5">{g.category}</td>
+                <td className="px-3 py-2.5">
+                  <Badge variant="outline" className="font-mono">{g.batches.length} Batch{g.batches.length !== 1 ? 'es' : ''}</Badge>
+                </td>
+                <td className="px-3 py-2.5">{g.earliestExpiry ? new Date(g.earliestExpiry).toLocaleDateString() : "-"}</td>
+                <td className="px-3 py-2.5 font-semibold text-blue-600">{g.mainQuantity}</td>
+                <td className="px-3 py-2.5 font-semibold text-green-600">{g.pharmacyQuantity}</td>
+                <td className="px-3 py-2.5 text-muted-foreground">{g.minLevel}</td>
+                <td className="px-3 py-2.5">₹{g.price}</td>
+                <td className="px-3 py-2.5 flex items-center justify-end gap-1">
                   {showTransfer ? (
-                    <Button variant="outline" size="sm" onClick={() => setTransferName(r.name)}>
+                    <Button variant="outline" size="sm" onClick={() => { setTransferName(g.name); setTransferBatchId("auto"); setTransferAmount(0); }}>
                       <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Transfer
                     </Button>
                   ) : (
                     <Button variant="outline" size="sm" disabled title="Transfer disabled by Admin">
                       <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Locked
-                    </Button>
-                  )}
-                  {!isPharmacist && (
-                    <Button variant="destructive" size="icon" className="h-8 w-8" onClick={() => onDelete(r.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   )}
                 </td>
@@ -472,35 +496,41 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
           <DialogHeader>
             <DialogTitle>Transfer to Pharmacy Stock</DialogTitle>
             <DialogDescription>
-              Transferring <strong>{transferName}</strong> — FIFO order (earliest expiry batch first).
-              Total available in main stock: <strong>{totalMainStock}</strong> units.
+              Transferring <strong>{transferName}</strong> to pharmacy for dispensing.
             </DialogDescription>
           </DialogHeader>
-          {fifoBatches.length > 0 && (
-            <div className="rounded-lg border bg-muted/30 p-3 space-y-1 text-xs">
-              <div className="font-semibold text-muted-foreground mb-1">Batches (will be consumed in this order):</div>
-              {fifoBatches.map((b, i) => (
-                <div key={b.id} className="flex justify-between">
-                  <span className="font-mono">{b.batch}</span>
-                  <span className="text-muted-foreground">Exp: {new Date(b.expiry).toLocaleDateString()}</span>
-                  <span className="font-semibold">{b.mainQuantity} units</span>
-                  {i === 0 && <span className="text-xs bg-primary/10 text-primary px-1.5 rounded">First</span>}
-                </div>
-              ))}
+          
+          <div className="py-2 space-y-4">
+            <div>
+              <Label>Select Batch to Transfer From</Label>
+              <select 
+                className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                value={transferBatchId}
+                onChange={(e) => setTransferBatchId(e.target.value)}
+              >
+                <option value="auto">Auto (FEFO - Earliest Expiry First) [{activeBatches.reduce((s: number, b: any) => s + b.mainQuantity, 0)} available]</option>
+                {activeBatches.map((b: any) => (
+                  <option key={b.id} value={b.id}>
+                    Batch {b.batch} | Exp: {new Date(b.expiry).toLocaleDateString()} | Stock: {b.mainQuantity}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
-          <div className="py-2">
-            <Label>Quantity to Transfer</Label>
-            <Input
-              type="number"
-              min={1}
-              max={totalMainStock}
-              value={transferAmount || ""}
-              onChange={e => setTransferAmount(parseInt(e.target.value) || 0)}
-              className="mt-1"
-            />
-            <p className="text-xs text-muted-foreground mt-2">Stock will be moved from main inventory to pharmacy dispensing stock, starting with the earliest-expiry batch.</p>
+
+            <div>
+              <Label>Quantity to Transfer</Label>
+              <Input
+                type="number"
+                min={1}
+                max={maxTransferAmount}
+                value={transferAmount || ""}
+                onChange={e => setTransferAmount(parseInt(e.target.value) || 0)}
+                className="mt-1"
+                placeholder={`Max: ${maxTransferAmount}`}
+              />
+            </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setTransferName(null)} disabled={transferring}>Cancel</Button>
             <Button onClick={handleTransfer} disabled={transferring || transferAmount <= 0}>
