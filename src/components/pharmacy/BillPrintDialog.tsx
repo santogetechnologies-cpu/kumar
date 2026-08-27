@@ -143,45 +143,30 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
         {/* Global Print Styles */}
         <style dangerouslySetInnerHTML={{__html: `
           @media print {
-            /* Hide the root app and overlays */
-            body > *:not([data-radix-portal]) { display: none !important; }
-            [data-radix-portal] > div[style*="pointer-events"] { display: none !important; } /* Radix Overlay */
-
-            /* Reset the dialog container so it doesn't squish or offset the print */
-            [role="dialog"] {
-              position: fixed !important;
-              top: 0 !important;
-              left: 0 !important;
-              transform: none !important;
-              width: 100% !important;
-              height: 100% !important;
-              max-width: none !important;
-              padding: 0 !important;
-              margin: 0 !important;
-              border: none !important;
-              background: white !important;
-              box-shadow: none !important;
-              overflow: visible !important;
+            body * {
+              visibility: hidden;
             }
-
-            /* Hide everything in dialog except the printable bill area */
-            [role="dialog"] > *:not(.flex.justify-center.bg-muted) { display: none !important; }
-            [role="dialog"] > .flex { 
-              display: block !important; 
-              background: white !important;
-              padding: 0 !important;
-              overflow: visible !important;
-              max-height: none !important;
+            #printable-bill, #printable-bill * {
+              visibility: visible;
             }
-
-            /* Size the bill explicitly */
             #printable-bill {
+              position: absolute;
+              left: 0;
+              top: 0;
               width: ${isThermal ? "80mm" : isLandscape ? "297mm" : "210mm"} !important;
               margin: 0 !important;
               padding: ${isThermal ? "4mm" : "12mm"} !important;
               box-shadow: none !important;
             }
-
+            
+            /* Break out of Radix UI fixed positioning for multi-page support */
+            [data-radix-portal], 
+            [role="dialog"] {
+               position: static !important;
+               transform: none !important;
+               overflow: visible !important;
+               max-height: none !important;
+            }
             @page {
               size: ${isThermal ? "80mm auto" : isLandscape ? "A4 landscape" : "A4 portrait"};
               margin: 0;
