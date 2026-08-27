@@ -143,34 +143,43 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
         {/* Global Print Styles */}
         <style dangerouslySetInnerHTML={{__html: `
           @media print {
-            /* Hide everything else */
-            body * { visibility: hidden !important; }
-            
-            /* Reset dialog layout to prevent transform/positioning issues */
-            div[role="dialog"], 
-            div[role="dialog"] > div {
-              position: static !important;
+            /* Hide the root app and overlays */
+            body > *:not([data-radix-portal]) { display: none !important; }
+            [data-radix-portal] > div[style*="pointer-events"] { display: none !important; } /* Radix Overlay */
+
+            /* Reset the dialog container so it doesn't squish or offset the print */
+            [role="dialog"] {
+              position: fixed !important;
+              top: 0 !important;
+              left: 0 !important;
               transform: none !important;
-              max-width: none !important;
               width: 100% !important;
-              margin: 0 !important;
+              height: 100% !important;
+              max-width: none !important;
               padding: 0 !important;
+              margin: 0 !important;
               border: none !important;
+              background: white !important;
               box-shadow: none !important;
+              overflow: visible !important;
             }
 
-            /* Make the bill visible and positioned correctly */
-            #printable-bill, #printable-bill * { 
-              visibility: visible !important; 
+            /* Hide everything in dialog except the printable bill area */
+            [role="dialog"] > *:not(.flex.justify-center.bg-muted) { display: none !important; }
+            [role="dialog"] > .flex { 
+              display: block !important; 
+              background: white !important;
+              padding: 0 !important;
+              overflow: visible !important;
+              max-height: none !important;
             }
+
+            /* Size the bill explicitly */
             #printable-bill {
-              position: absolute !important;
-              left: 0 !important;
-              top: 0 !important;
-              width: ${isThermal ? "80mm" : isLandscape ? "297mm" : "100%"} !important;
-              max-width: ${isLandscape ? "297mm" : "210mm"} !important;
+              width: ${isThermal ? "80mm" : isLandscape ? "297mm" : "210mm"} !important;
               margin: 0 !important;
               padding: ${isThermal ? "4mm" : "12mm"} !important;
+              box-shadow: none !important;
             }
 
             @page {
