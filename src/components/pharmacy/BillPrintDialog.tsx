@@ -14,7 +14,57 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
   if (!bill) return null;
 
   const handlePrint = () => {
-    window.print();
+    const printContent = document.getElementById("printable-bill");
+    if (!printContent) return;
+
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentWindow?.document;
+    if (!iframeDoc) return;
+
+    // Copy Tailwind styles from the main document
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map((s) => s.outerHTML)
+      .join("");
+
+    iframeDoc.write(`
+      <html>
+        <head>
+          <title>Print Bill</title>
+          ${styles}
+          <style>
+            @page {
+              size: ${isThermal ? "80mm auto" : isLandscape ? "A4 landscape" : "A4 portrait"};
+              margin: 0;
+            }
+            body {
+              margin: 0;
+              padding: ${isThermal ? "4mm" : "12mm"};
+              -webkit-print-color-adjust: exact;
+            }
+            #printable-bill {
+              width: ${isThermal ? "80mm" : isLandscape ? "297mm" : "210mm"} !important;
+              box-shadow: none !important;
+            }
+          </style>
+        </head>
+        <body>
+          ${printContent.outerHTML}
+        </body>
+      </html>
+    `);
+    iframeDoc.close();
+
+    // Wait for styles to apply before triggering print
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 1000);
+    }, 500);
   };
 
   const isThermal = format === "Thermal";
@@ -140,38 +190,9 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
           </div>
         </div>
 
-        {/* Global Print Styles */}
+        {/* Global Print Styles (Fallback if ever needed, but handled by iframe now) */}
         <style dangerouslySetInnerHTML={{__html: `
-          @media print {
-            body * {
-              visibility: hidden;
-            }
-            #printable-bill, #printable-bill * {
-              visibility: visible;
-            }
-            #printable-bill {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: ${isThermal ? "80mm" : isLandscape ? "297mm" : "210mm"} !important;
-              margin: 0 !important;
-              padding: ${isThermal ? "4mm" : "12mm"} !important;
-              box-shadow: none !important;
-            }
-            
-            /* Break out of Radix UI fixed positioning for multi-page support */
-            [data-radix-portal], 
-            [role="dialog"] {
-               position: static !important;
-               transform: none !important;
-               overflow: visible !important;
-               max-height: none !important;
-            }
-            @page {
-              size: ${isThermal ? "80mm auto" : isLandscape ? "A4 landscape" : "A4 portrait"};
-              margin: 0;
-            }
-          }
+          /* No screen-level media print needed anymore since we use iframe printing */
         `}} />
       </DialogContent>
     </Dialog>
