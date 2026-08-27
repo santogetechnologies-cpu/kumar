@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
 import {
   Package, FlaskConical, ShoppingCart, Calendar, AlertTriangle,
-  LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText, GitCompare
+  LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText, GitCompare, Loader2
 } from "lucide-react";
 import { toast } from "sonner";
 import { InvoiceDialog, type InvoiceRow, type InvoiceMeta, rowTaxable, rowGst } from "./InvoiceDialog";
@@ -376,26 +376,49 @@ function MaterialsMgmt() {
 
 
 function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: string) => void, type: "medicine" | "material" }) {
-  const { transferStock, canTransfer } = usePharmacy();
+  const { medicines, materials, transferStock, canTransfer } = usePharmacy();
   const { user } = useAuth();
-  const [transferId, setTransferId] = useState<string | null>(null);
+  // transferId holds the NAME of the item (for FIFO across batches)
+  const [transferName, setTransferName] = useState<string | null>(null);
   const [transferAmount, setTransferAmount] = useState<number>(0);
+  const [transferring, setTransferring] = useState(false);
 
   const isPharmacist = user?.user_metadata?.role === "pharmacist" || user?.role === "pharmacist";
   const showTransfer = !isPharmacist || canTransfer;
 
-  const handleTransfer = () => {
-    if (!transferId || transferAmount <= 0) return;
-    const item = rows.find(r => r.id === transferId);
-    if (!item) return;
-    if (transferAmount > item.mainQuantity) {
-      toast.error("Not enough main stock to transfer");
+  // Get FIFO batches (same name, sorted by earliest expiry, with mainQuantity > 0)
+  const fifoBatches = transferName
+    ? rows
+        .filter(r => r.name.toLowerCase() === transferName.toLowerCase() && r.mainQuantity > 0)
+        .sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime())
+    : [];
+
+  const totalMainStock = fifoBatches.reduce((s, r) => s + r.mainQuantity, 0);
+
+  const handleTransfer = async () => {
+    if (!transferName || transferAmount <= 0) return;
+    if (transferAmount > totalMainStock) {
+      toast.error(`Not enough main stock. Only ${totalMainStock} units available.`);
       return;
     }
-    transferStock(type, transferId, transferAmount);
-    toast.success(`Transferred ${transferAmount} to Pharmacy`);
-    setTransferId(null);
-    setTransferAmount(0);
+    setTransferring(true);
+    try {
+      // FIFO: deduct from earliest-expiry batches first
+      let remaining = transferAmount;
+      for (const batch of fifoBatches) {
+        if (remaining <= 0) break;
+        const take = Math.min(remaining, batch.mainQuantity);
+        await transferStock(type, batch.id, take);
+        remaining -= take;
+      }
+      toast.success(`Transferred ${transferAmount} units to Pharmacy (FIFO — earliest batch first)`);
+      setTransferName(null);
+      setTransferAmount(0);
+    } catch (e: any) {
+      toast.error("Transfer failed: " + e.message);
+    } finally {
+      setTransferring(false);
+    }
   };
 
   return (
@@ -424,7 +447,7 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
                 <td className="px-3 py-2.5">{r.supplier || "-"}</td>
                 <td className="px-3 py-2.5 flex items-center gap-1">
                   {showTransfer ? (
-                    <Button variant="outline" size="sm" onClick={() => setTransferId(r.id)}>
+                    <Button variant="outline" size="sm" onClick={() => setTransferName(r.name)}>
                       <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Transfer
                     </Button>
                   ) : (
@@ -444,19 +467,45 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
         </table>
       </div>
 
-      <Dialog open={!!transferId} onOpenChange={(o) => { if (!o) setTransferId(null); }}>
+      <Dialog open={!!transferName} onOpenChange={(o) => { if (!o && !transferring) setTransferName(null); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Transfer to Pharmacy Stock</DialogTitle>
+            <DialogDescription>
+              Transferring <strong>{transferName}</strong> — FIFO order (earliest expiry batch first).
+              Total available in main stock: <strong>{totalMainStock}</strong> units.
+            </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          {fifoBatches.length > 0 && (
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-1 text-xs">
+              <div className="font-semibold text-muted-foreground mb-1">Batches (will be consumed in this order):</div>
+              {fifoBatches.map((b, i) => (
+                <div key={b.id} className="flex justify-between">
+                  <span className="font-mono">{b.batch}</span>
+                  <span className="text-muted-foreground">Exp: {new Date(b.expiry).toLocaleDateString()}</span>
+                  <span className="font-semibold">{b.mainQuantity} units</span>
+                  {i === 0 && <span className="text-xs bg-primary/10 text-primary px-1.5 rounded">First</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="py-2">
             <Label>Quantity to Transfer</Label>
-            <Input type="number" value={transferAmount || ""} onChange={e => setTransferAmount(parseInt(e.target.value) || 0)} />
-            <p className="text-xs text-muted-foreground mt-2">This moves stock from the main inventory to the active pharmacy dispensing inventory.</p>
+            <Input
+              type="number"
+              min={1}
+              max={totalMainStock}
+              value={transferAmount || ""}
+              onChange={e => setTransferAmount(parseInt(e.target.value) || 0)}
+              className="mt-1"
+            />
+            <p className="text-xs text-muted-foreground mt-2">Stock will be moved from main inventory to pharmacy dispensing stock, starting with the earliest-expiry batch.</p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setTransferId(null)}>Cancel</Button>
-            <Button onClick={handleTransfer}>Transfer Stock</Button>
+            <Button variant="outline" onClick={() => setTransferName(null)} disabled={transferring}>Cancel</Button>
+            <Button onClick={handleTransfer} disabled={transferring || transferAmount <= 0}>
+              {transferring ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Transferring…</> : <><ArrowLeftRight className="h-4 w-4 mr-2" /> Transfer Stock</>}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

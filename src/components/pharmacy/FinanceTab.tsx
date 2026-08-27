@@ -98,8 +98,11 @@ export function FinanceTab() {
 
   const filteredExpenses = useMemo(() =>
     expenses.filter(e => {
-      const d = new Date(e.date);
-      return d >= from && d <= to;
+      // expense.date is YYYY-MM-DD — parse in local time to avoid timezone shift
+      const [y, m, day] = e.date.split('-').map(Number);
+      const d = new Date(y, m - 1, day);
+      return d >= new Date(from.getFullYear(), from.getMonth(), from.getDate())
+          && d <= new Date(to.getFullYear(), to.getMonth(), to.getDate());
     }), [expenses, from, to]);
 
   /* ── P&L Calculations ── */
@@ -117,20 +120,29 @@ export function FinanceTab() {
   /* ── Daily chart data ── */
   const dailyData = useMemo(() => {
     const days: Record<string, { date: string; revenue: number; expenses: number; profit: number }> = {};
-    for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-      const key = d.toISOString().slice(0, 10);
+    // Use a local copy to avoid mutating the shared `from` Date object
+    const loopStart = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+    const loopEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+    for (let d = new Date(loopStart); d <= loopEnd; d.setDate(d.getDate() + 1)) {
+      // Build YYYY-MM-DD key in LOCAL time (not UTC) to match how dates are stored
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       days[key] = { date: d.toLocaleDateString("en-IN", { day: "numeric", month: "short" }), revenue: 0, expenses: 0, profit: 0 };
     }
+    // Bills: extract local-time YYYY-MM-DD from ISO createdAt
     filteredBills.forEach(b => {
-      const k = new Date(b.createdAt).toISOString().slice(0, 10);
+      const bd = new Date(b.createdAt);
+      const k = `${bd.getFullYear()}-${String(bd.getMonth() + 1).padStart(2, '0')}-${String(bd.getDate()).padStart(2, '0')}`;
       if (days[k]) days[k].revenue += getBillNetTotal(b);
     });
+    // Purchases: same local-time extraction
     filteredReceivedPurchases.forEach(p => {
-      const k = new Date(p.createdAt).toISOString().slice(0, 10);
+      const pd = new Date(p.createdAt);
+      const k = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, '0')}-${String(pd.getDate()).padStart(2, '0')}`;
       if (days[k]) days[k].expenses += p.cost;
     });
+    // Expenses: date is stored as YYYY-MM-DD string — match directly
     filteredExpenses.forEach(e => {
-      const k = e.date;
+      const k = e.date; // already YYYY-MM-DD
       if (days[k]) days[k].expenses += e.amount;
     });
     return Object.values(days).map(d => ({
