@@ -647,7 +647,14 @@ function PurchasesMgmt() {
                           <Button variant="outline" size="sm" onClick={() => updatePurchaseStatus(p.id, "cancelled")}>
                             Cancel
                           </Button>
-                          <Button size="sm" onClick={() => updatePurchaseStatus(p.id, "received")}>
+                          <Button size="sm" onClick={async () => {
+                            try {
+                              await updatePurchaseStatus(p.id, "received");
+                              toast.success("Purchase marked as received");
+                            } catch (e: any) {
+                              toast.error("Failed to receive: " + e.message);
+                            }
+                          }}>
                             Mark Received
                           </Button>
                         </>

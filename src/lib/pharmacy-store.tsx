@@ -576,7 +576,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
 
   /* --- Purchases --- */
   const addPurchase = async (p: Omit<Purchase, "id" | "createdAt">) => {
-    const id = "PO" + Date.now();
+    const id = "PO-" + crypto.randomUUID().slice(0, 8).toUpperCase();
     const { error } = await supabase.from("purchases").insert({
       id,
       item: p.item,
@@ -641,7 +641,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
             .insert({
               name: templateMed.name,
               category: templateMed.category,
-              batch: b || `PO-${Date.now()}`,
+              batch: b || `PO-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
               expiry: e || new Date(Date.now() + 31536000000).toISOString(),
               main_quantity: qtyToAdd,
               pharmacy_quantity: 0,
@@ -651,7 +651,8 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
             })
             .select()
             .single();
-          if (!insErr && data) {
+          if (insErr) throw insErr;
+          if (data) {
             setMedicines(prev => [rowToMedicine(data), ...prev]);
           }
         }
@@ -673,7 +674,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
               .insert({
                 name: templateMat.name,
                 category: templateMat.category,
-                batch: b || `PO-${Date.now()}`,
+                batch: b || `PO-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
                 expiry: e || new Date(Date.now() + 31536000000).toISOString(),
                 main_quantity: qtyToAdd,
                 pharmacy_quantity: 0,
@@ -683,8 +684,30 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
               })
               .select()
               .single();
-            if (!insErr && data) {
+            if (insErr) throw insErr;
+            if (data) {
               setMaterials(prev => [rowToMaterial(data), ...prev]);
+            }
+          } else {
+            // Create a completely new medicine if it doesn't match ANY existing medicine or material
+            const { data, error: insErr } = await supabase
+              .from("medicines")
+              .insert({
+                name: purchase.item,
+                category: "General",
+                batch: b || `PO-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
+                expiry: e || new Date(Date.now() + 31536000000).toISOString(),
+                main_quantity: qtyToAdd,
+                pharmacy_quantity: 0,
+                min_level: 10,
+                price: purchase.mrp || purchase.cost || 0,
+                supplier: purchase.supplier
+              })
+              .select()
+              .single();
+            if (insErr) throw insErr;
+            if (data) {
+              setMedicines(prev => [rowToMedicine(data), ...prev]);
             }
           }
         }
