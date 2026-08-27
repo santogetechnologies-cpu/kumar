@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,15 +49,30 @@ interface Props {
   onSave: (rows: InvoiceRow[], meta: InvoiceMeta) => void;
   existingProducts?: string[];
   restrictToExisting?: boolean;
+  initialRows?: InvoiceRow[];
+  initialMeta?: Partial<InvoiceMeta>;
 }
 
-export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProducts, restrictToExisting }: Props) {
+export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProducts, restrictToExisting, initialRows, initialMeta }: Props) {
   const [meta, setMeta] = useState<InvoiceMeta>({
     supplier: "", invoiceNo: "",
     invoiceDate: new Date().toISOString().slice(0, 10),
     paymentMode: "Cash",
   });
   const [rows, setRows] = useState<InvoiceRow[]>([emptyRow()]);
+
+  // Sync state when dialog opens with initial data
+  useEffect(() => {
+    if (open) {
+      setMeta({
+        supplier: initialMeta?.supplier || "", 
+        invoiceNo: initialMeta?.invoiceNo || "",
+        invoiceDate: initialMeta?.invoiceDate || new Date().toISOString().slice(0, 10),
+        paymentMode: initialMeta?.paymentMode || "Cash",
+      });
+      setRows(initialRows || [emptyRow()]);
+    }
+  }, [open]);
 
   const updateMeta = (patch: Partial<InvoiceMeta>) => setMeta(m => ({ ...m, ...patch }));
   const updateRow = (i: number, patch: Partial<InvoiceRow>) =>

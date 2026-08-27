@@ -843,65 +843,48 @@ function LowStockView() {
         </div>
       </Card>
 
-      {/* Purchase Order Dialog */}
-      <Dialog open={!!poItem} onOpenChange={(o) => { if (!o && !poSaving) setPoItem(null); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5 text-primary" /> Create Purchase Order
-            </DialogTitle>
-            <DialogDescription>
-              Raise a purchase order for <strong>{poItem?.name}</strong>. This will appear in the Purchases tab.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="rounded-lg border bg-muted/30 p-3 text-sm space-y-1">
-              <div><strong>Item:</strong> {poItem?.name}</div>
-              <div><strong>Current Stock:</strong> <span className="text-destructive font-bold">{poItem ? poItem.mainQuantity + poItem.pharmacyQuantity : 0}</span> / min {poItem?.minLevel}</div>
-              <div><strong>MRP:</strong> ₹{poItem?.price}</div>
-            </div>
-            <div>
-              <Label>Supplier *</Label>
-              <Input
-                className="mt-1"
-                placeholder="e.g. Sun Pharma"
-                value={poSupplier}
-                onChange={e => setPoSupplier(e.target.value)}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Order Quantity *</Label>
-                <Input
-                  className="mt-1"
-                  type="number"
-                  min={1}
-                  value={poQty || ""}
-                  onChange={e => setPoQty(parseInt(e.target.value) || 0)}
-                />
-              </div>
-              <div>
-                <Label>Total Cost (₹)</Label>
-                <Input
-                  className="mt-1"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  placeholder="0.00"
-                  value={poCost || ""}
-                  onChange={e => setPoCost(parseFloat(e.target.value) || 0)}
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPoItem(null)} disabled={poSaving}>Cancel</Button>
-            <Button onClick={submitPO} disabled={poSaving}>
-              {poSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating…</> : <><ShoppingCart className="h-4 w-4 mr-2" /> Create Purchase Order</>}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Purchase Order via InvoiceDialog */}
+      <InvoiceDialog 
+        open={!!poItem} 
+        onOpenChange={(o) => { if (!o && !poSaving) setPoItem(null); }} 
+        title="New Purchase Invoice (from Low Stock)"
+        onSave={async (rows, meta) => {
+          setPoSaving(true);
+          try {
+            for (const r of rows) {
+              const cost = rowTaxable(r) + rowGst(r);
+              const discountAmt = (r.ptr * r.qty * r.disPct) / 100;
+              await addPurchase({
+                item: r.product,
+                supplier: meta.supplier,
+                quantity: r.qty,
+                received: 0,
+                cost: +cost.toFixed(2),
+                status: "pending",
+                invoice_no: meta.invoiceNo,
+                free_quantity: r.free,
+                discount_amount: +discountAmt.toFixed(2),
+                mrp: r.mrp
+              });
+            }
+            toast.success(`Purchase order created · ${rows.length} line${rows.length > 1 ? "s" : ""}`);
+            setPoItem(null);
+          } catch (e: any) {
+            toast.error("Failed to create PO: " + e.message);
+          } finally {
+            setPoSaving(false);
+          }
+        }}
+        existingProducts={allItems.map(m => m.name)}
+        initialMeta={{ supplier: poItem?.supplier || "" }}
+        initialRows={poItem ? [{
+          product: poItem.name,
+          hsn: "", batch: "", exp: "",
+          mrp: poItem.price, ptr: poItem.price,
+          qty: poItem.minLevel * 2 || 10,
+          free: 0, disPct: 0, gstPct: 0
+        }] : undefined}
+      />
     </>
   );
 }
