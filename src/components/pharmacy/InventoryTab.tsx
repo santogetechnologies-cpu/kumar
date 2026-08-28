@@ -12,13 +12,15 @@ import {
 } from "recharts";
 import {
   Package, FlaskConical, ShoppingCart, Calendar, AlertTriangle,
-  LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText, GitCompare, Loader2, ClipboardList
+  LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText, GitCompare, Loader2, ClipboardList, Settings2, Edit
 } from "lucide-react";
 import { toast } from "sonner";
 import { InvoiceDialog, type InvoiceRow, type InvoiceMeta, rowTaxable, rowGst } from "./InvoiceDialog";
 import { BulkUploadDialog } from "./BulkUploadDialog";
+import { MinStockConfigTab } from "./MinStockConfigTab";
+import { getEffectiveMinLevel } from "@/lib/pharmacy-store";
 
-type SubTab = "dashboard" | "medicines" | "materials" | "purchases" | "movements" | "stock" | "expiry" | "lowstock";
+type SubTab = "dashboard" | "medicines" | "materials" | "purchases" | "movements" | "stock" | "expiry" | "lowstock" | "minstock-config";
 
 const subTabs: { id: SubTab; label: string; icon: any }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -29,6 +31,7 @@ const subTabs: { id: SubTab; label: string; icon: any }[] = [
   { id: "stock", label: "Stock Comparison", icon: GitCompare },
   { id: "expiry", label: "Expiry", icon: Calendar },
   { id: "lowstock", label: "Low Stock", icon: AlertTriangle },
+  { id: "minstock-config", label: "Min Stock Config", icon: Settings2 },
 ];
 
 export function InventoryTab() {
@@ -60,17 +63,18 @@ export function InventoryTab() {
       {sub === "materials" && <MaterialsMgmt />}
       {sub === "purchases" && <PurchasesMgmt />}
       {sub === "movements" && <MovementsView />}
-      {sub === "stock" && <StockComparisonView />}
-      {sub === "expiry" && <ExpiryView />}
-      {sub === "lowstock" && <LowStockView />}
+      { sub === "stock" && <StockComparisonView /> }
+      { sub === "expiry" && <ExpiryView /> }
+      { sub === "lowstock" && <LowStockView /> }
+      { sub === "minstock-config" && <MinStockConfigTab /> }
     </div>
   );
 }
 
 function InvDashboard() {
-  const { medicines, materials, purchases } = usePharmacy();
+  const { medicines, materials, purchases, generalMinStock } = usePharmacy();
   const allItems = [...medicines, ...materials];
-  const lowStock = allItems.filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= m.minLevel).length;
+  const lowStock = allItems.filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= getEffectiveMinLevel(m, generalMinStock)).length;
   const now = Date.now();
   const expiry = medicines.filter((m) => new Date(m.expiry).getTime() - now < 60 * 86400000).length;
   const outOfStock = allItems.filter((m) => (m.mainQuantity + m.pharmacyQuantity) === 0).length;
@@ -140,7 +144,7 @@ function InvDashboard() {
 
 /* ---- Stock Comparison Sub-Tab ---- */
 function StockComparisonView() {
-  const { medicines, materials } = usePharmacy();
+  const { medicines, materials, generalMinStock } = usePharmacy();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "medicine" | "material">("all");
 
@@ -168,7 +172,7 @@ function StockComparisonView() {
 
   const totalMain = filtered.reduce((s, m) => s + m.mainQuantity, 0);
   const totalPharmacy = filtered.reduce((s, m) => s + m.pharmacyQuantity, 0);
-  const lowTransfer = filtered.filter(m => m.pharmacyQuantity <= m.minLevel && m.mainQuantity > 0).length;
+  const lowTransfer = filtered.filter(m => m.pharmacyQuantity <= getEffectiveMinLevel(m, generalMinStock) && m.mainQuantity > 0).length;
 
   return (
     <div className="space-y-4">
@@ -256,8 +260,9 @@ function StockComparisonView() {
                 <tr><td colSpan={8} className="text-center py-6 text-muted-foreground">No items found</td></tr>
               )}
               {filtered.map(m => {
+                const effectiveMin = getEffectiveMinLevel(m, generalMinStock);
                 const total = m.mainQuantity + m.pharmacyQuantity;
-                const status = total === 0 ? "Out" : m.pharmacyQuantity <= m.minLevel ? (m.mainQuantity > 0 ? "Needs Transfer" : "Critical") : "OK";
+                const status = total === 0 ? "Out" : m.pharmacyQuantity <= effectiveMin ? (m.mainQuantity > 0 ? "Needs Transfer" : "Critical") : "OK";
                 const statusColor = status === "Out" ? "destructive" : status === "Critical" ? "destructive" : status === "Needs Transfer" ? "secondary" : "default";
                 return (
                   <tr key={m.id} className="border-t">
@@ -269,7 +274,7 @@ function StockComparisonView() {
                     <td className="px-3 py-2.5 font-semibold text-blue-600">{m.mainQuantity}</td>
                     <td className="px-3 py-2.5 font-semibold text-green-600">{m.pharmacyQuantity}</td>
                     <td className="px-3 py-2.5 font-bold">{total}</td>
-                    <td className="px-3 py-2.5 text-muted-foreground">{m.minLevel}</td>
+                    <td className="px-3 py-2.5 text-muted-foreground">{effectiveMin}</td>
                     <td className="px-3 py-2.5">
                       <Badge variant={statusColor as any}>{status}</Badge>
                     </td>
@@ -376,14 +381,17 @@ function MaterialsMgmt() {
 
 
 function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: string) => void, type: "medicine" | "material" }) {
-  const { medicines, materials, transferStock, canTransfer } = usePharmacy();
-  const { user } = useAuth();
+  const { transferStock, canTransfer, updateMedicine, updateMaterial } = usePharmacy();
+  const { user, role } = useAuth();
   
   const [transferName, setTransferName] = useState<string | null>(null);
   const [transferBatchId, setTransferBatchId] = useState<string>("auto");
   const [transferAmount, setTransferAmount] = useState<number>(0);
   const [transferring, setTransferring] = useState(false);
+  
+  const [editingItem, setEditingItem] = useState<any | null>(null);
 
+  const isAdmin = role === "admin";
   const isPharmacist = user?.user_metadata?.role === "pharmacist" || user?.role === "pharmacist";
   const showTransfer = !isPharmacist || canTransfer;
 
@@ -449,13 +457,26 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
     }
   };
 
+  const handleDelete = async (g: any) => {
+    if (window.confirm(`Are you sure you want to delete all batches of ${g.name}?`)) {
+      try {
+        for (const b of g.batches) {
+          await onDelete(b.id);
+        }
+        toast.success(`Deleted ${g.name}`);
+      } catch (e: any) {
+        toast.error(`Failed to delete: ${e.message}`);
+      }
+    }
+  };
+
   return (
     <>
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
-              {["Name", "Category", "Batches", "Earliest Expiry", "Main Stock", "Pharmacy Stock", "Min", "Price", ""].map((h) => (
+              {["Name", "Category", "Batches", "Earliest Expiry", "Main Stock", "Pharmacy Stock", "Min", "Price", "Actions"].map((h) => (
                 <th key={h} className="text-left px-3 py-2.5 font-semibold text-muted-foreground text-xs uppercase tracking-wide">{h}</th>
               ))}
             </tr>
@@ -479,16 +500,22 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
                 <td className="px-3 py-2.5 font-semibold text-green-600">{g.pharmacyQuantity}</td>
                 <td className="px-3 py-2.5 text-muted-foreground">{g.minLevel}</td>
                 <td className="px-3 py-2.5">₹{g.price}</td>
-                <td className="px-3 py-2.5 flex items-center justify-end gap-1">
+                <td className="px-3 py-2.5 flex items-center justify-end gap-1 flex-wrap">
                   {showTransfer ? (
                     <Button variant="outline" size="sm" onClick={() => { setTransferName(g.name); setTransferBatchId("auto"); setTransferAmount(0); }}>
-                      <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Transfer
+                      <ArrowLeftRight className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Transfer</span>
                     </Button>
                   ) : (
                     <Button variant="outline" size="sm" disabled title="Transfer disabled by Admin">
-                      <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Locked
+                      <ArrowLeftRight className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Locked</span>
                     </Button>
                   )}
+                  <Button variant="outline" size="sm" onClick={() => setEditingItem(g)}>
+                    <Edit className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Edit</span>
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => handleDelete(g)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </td>
               </tr>
             ))}
@@ -544,7 +571,124 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      {editingItem && (
+        <BatchEditDialog
+          item={editingItem}
+          open={!!editingItem}
+          onOpenChange={(o) => { if (!o) setEditingItem(null) }}
+          type={type}
+          onUpdate={async (id, patch) => {
+            if (type === "medicine") await updateMedicine(id, patch);
+            else await updateMaterial(id, patch);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function BatchEditDialog({ item, open, onOpenChange, type, onUpdate }: { item: any, open: boolean, onOpenChange: (o: boolean) => void, type: "medicine" | "material", onUpdate: (id: string, patch: any) => Promise<void> }) {
+  const [batches, setBatches] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  // Sync internal state when opened
+  useMemo(() => {
+    if (open && item) {
+      setBatches(JSON.parse(JSON.stringify(item.batches))); // deep copy
+    }
+  }, [open, item]);
+
+  const handleChange = (index: number, field: string, value: any) => {
+    const newBatches = [...batches];
+    newBatches[index][field] = value;
+    setBatches(newBatches);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      for (const b of batches) {
+        // Find if something changed
+        const original = item.batches.find((orig: any) => orig.id === b.id);
+        const patch: any = {};
+        if (b.price !== original.price) patch.price = parseFloat(b.price) || 0;
+        if (b.mainQuantity !== original.mainQuantity) patch.mainQuantity = parseInt(b.mainQuantity) || 0;
+        if (b.pharmacyQuantity !== original.pharmacyQuantity) patch.pharmacyQuantity = parseInt(b.pharmacyQuantity) || 0;
+        if (b.expiry !== original.expiry) patch.expiry = b.expiry;
+        if (b.batch !== original.batch) patch.batch = b.batch;
+        
+        if (Object.keys(patch).length > 0) {
+          await onUpdate(b.id, patch);
+        }
+      }
+      toast.success("Batches updated successfully");
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error("Failed to update: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Edit Batches - {item?.name}</DialogTitle>
+          <DialogDescription>
+            Update price, stock, and expiry for individual batches of this {type}.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="flex-1 overflow-auto py-4">
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left px-3 py-2 font-semibold">Batch</th>
+                  <th className="text-left px-3 py-2 font-semibold">Expiry</th>
+                  <th className="text-left px-3 py-2 font-semibold">Price (MRP)</th>
+                  <th className="text-left px-3 py-2 font-semibold">Main Stk</th>
+                  <th className="text-left px-3 py-2 font-semibold">Pharm Stk</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((b, i) => (
+                  <tr key={b.id} className="border-t">
+                    <td className="px-3 py-2">
+                      <Input value={b.batch} onChange={(e) => handleChange(i, 'batch', e.target.value)} className="h-8" />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input type="date" value={b.expiry} onChange={(e) => handleChange(i, 'expiry', e.target.value)} className="h-8 w-32" />
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="relative">
+                        <span className="absolute left-2 top-1.5 text-muted-foreground text-xs">₹</span>
+                        <Input type="number" min={0} step="0.01" value={b.price} onChange={(e) => handleChange(i, 'price', e.target.value)} className="h-8 pl-5 w-24" />
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input type="number" min={0} value={b.mainQuantity} onChange={(e) => handleChange(i, 'mainQuantity', e.target.value)} className="h-8 w-20" />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input type="number" min={0} value={b.pharmacyQuantity} onChange={(e) => handleChange(i, 'pharmacyQuantity', e.target.value)} className="h-8 w-20" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null} Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -847,13 +991,13 @@ function ExpiryView() {
 }
 
 function LowStockView() {
-  const { medicines, materials, addPurchase } = usePharmacy();
+  const { medicines, materials, addPurchase, generalMinStock } = usePharmacy();
   const allItems = [
     ...medicines.map(m => ({ ...m, _type: "medicine" as const })),
     ...materials.map(m => ({ ...m, _type: "material" as const })),
   ];
   const rows = allItems
-    .filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= m.minLevel)
+    .filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= getEffectiveMinLevel(m, generalMinStock))
     .sort((a, b) => (a.mainQuantity + a.pharmacyQuantity) - (b.mainQuantity + b.pharmacyQuantity));
 
   // Purchase order dialog state
@@ -866,7 +1010,7 @@ function LowStockView() {
   const openPO = (item: any) => {
     setPoItem(item);
     setPoSupplier(item.supplier || "");
-    setPoQty(item.minLevel * 2 || 10);
+    setPoQty(getEffectiveMinLevel(item, generalMinStock) * 2 || 10);
     setPoCost(0);
   };
 
@@ -907,8 +1051,9 @@ function LowStockView() {
             <tbody>
               {rows.length === 0 && <tr><td colSpan={8} className="text-center py-6 text-muted-foreground">All stock levels adequate</td></tr>}
               {rows.map((m) => {
+                const effectiveMin = getEffectiveMinLevel(m, generalMinStock);
                 const total = m.mainQuantity + m.pharmacyQuantity;
-                const status = total === 0 ? "Out" : total <= m.minLevel * 0.25 ? "Critical" : "Low";
+                const status = total === 0 ? "Out" : total <= effectiveMin * 0.25 ? "Critical" : "Low";
                 const badge = status === "Out" ? "destructive" : status === "Critical" ? "destructive" : "secondary";
                 const showPO = status === "Low" || status === "Critical" || status === "Out";
                 return (
@@ -917,7 +1062,7 @@ function LowStockView() {
                     <td className="px-3 py-2.5"><Badge variant="outline" className="text-[10px]">{m._type}</Badge></td>
                     <td className="px-3 py-2.5">{m.category}</td>
                     <td className="px-3 py-2.5 font-bold text-destructive">{total}</td>
-                    <td className="px-3 py-2.5">{m.minLevel}</td>
+                    <td className="px-3 py-2.5">{effectiveMin}</td>
                     <td className="px-3 py-2.5"><Badge variant={badge as any}>{status}</Badge></td>
                     <td className="px-3 py-2.5">₹{m.price}</td>
                     <td className="px-3 py-2.5">
@@ -973,7 +1118,7 @@ function LowStockView() {
           product: poItem.name,
           hsn: "", batch: "", exp: "",
           mrp: poItem.price, ptr: poItem.price,
-          qty: poItem.minLevel * 2 || 10,
+          qty: getEffectiveMinLevel(poItem, generalMinStock) * 2 || 10,
           free: 0, disPct: 0, gstPct: 0
         }] : undefined}
       />

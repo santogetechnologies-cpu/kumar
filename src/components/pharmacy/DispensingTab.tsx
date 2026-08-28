@@ -452,7 +452,10 @@ export function DispensingTab() {
                               <span className="text-muted-foreground">Exp: {new Date(b.expiry).toLocaleDateString()}</span>
                               {days < 0 && <Badge variant="destructive" className="text-[9px] py-0 px-1 border-0">Expired</Badge>}
                               {days >= 0 && days <= 30 && <Badge className="text-[9px] py-0 px-1 bg-warning text-white border-0"><AlertTriangle className="h-2 w-2 mr-0.5" />{days}d</Badge>}
-                              <span className="ml-auto text-muted-foreground font-medium">Stk: <span className="text-foreground/80">{b.pharmacyQuantity}</span></span>
+                              <span className="ml-auto text-muted-foreground font-medium flex items-center gap-2">
+                                <span className="text-foreground font-bold">₹{b.price.toFixed(2)}</span>
+                                <span>Stk: <span className="text-foreground/80">{b.pharmacyQuantity}</span></span>
+                              </span>
                             </div>
                           );
                         })}
@@ -462,7 +465,11 @@ export function DispensingTab() {
                       </div>
                     </div>
                     <div className="text-right shrink-0 ml-2 flex flex-col items-end">
-                      <div className="font-extrabold text-primary text-lg tracking-tight">₹{firstBatch.price.toFixed(2)}</div>
+                      <div className="font-extrabold text-primary text-lg tracking-tight">
+                        {g.batches.some(b => b.price !== firstBatch.price) 
+                           ? <span className="text-sm font-medium opacity-80">Multiple Prices</span>
+                           : `₹${firstBatch.price.toFixed(2)}`}
+                      </div>
                       <div className="mt-1">
                           {out
                             ? <Badge variant="destructive" className="text-[10px] border-0">Out of Stock</Badge>

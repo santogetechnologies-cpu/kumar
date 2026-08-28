@@ -1,15 +1,17 @@
-import { usePharmacy } from "@/lib/pharmacy-store";
+import { usePharmacy, getEffectiveMinLevel } from "@/lib/pharmacy-store";
 import { AlertTriangle, CheckCircle2, Package } from "lucide-react";
 
 export function StatCards() {
-  const { medicines, materials, bills } = usePharmacy();
+  const { medicines, materials, bills, generalMinStock } = usePharmacy();
   const today = new Date().toDateString();
   const dispensedToday = bills.filter(
     (b) => new Date(b.createdAt).toDateString() === today && (b.status === "paid" || b.status === "partially_refunded")
   ).length;
 
   const allItems = [...medicines, ...materials];
-  const lowStock = allItems.filter((m) => (m.mainQuantity + m.pharmacyQuantity) <= m.minLevel).length;
+  const lowStock = allItems.filter(
+    (m) => (m.mainQuantity + m.pharmacyQuantity) <= getEffectiveMinLevel(m, generalMinStock)
+  ).length;
 
   return (
     <div className="grid gap-4 sm:grid-cols-3">
