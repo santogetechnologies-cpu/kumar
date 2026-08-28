@@ -377,13 +377,18 @@ function MaterialsMgmt() {
 
 function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: string) => void, type: "medicine" | "material" }) {
   const { medicines, materials, transferStock, canTransfer } = usePharmacy();
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   
   const [transferName, setTransferName] = useState<string | null>(null);
   const [transferBatchId, setTransferBatchId] = useState<string>("auto");
   const [transferAmount, setTransferAmount] = useState<number>(0);
   const [transferring, setTransferring] = useState(false);
 
+  // Delete state
+  const [deleteItem, setDeleteItem] = useState<{ name: string; batches: any[] } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const isAdmin = role === "admin";
   const isPharmacist = user?.user_metadata?.role === "pharmacist" || user?.role === "pharmacist";
   const showTransfer = !isPharmacist || canTransfer;
 
@@ -479,16 +484,29 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
                 <td className="px-3 py-2.5 font-semibold text-green-600">{g.pharmacyQuantity}</td>
                 <td className="px-3 py-2.5 text-muted-foreground">{g.minLevel}</td>
                 <td className="px-3 py-2.5">₹{g.price}</td>
-                <td className="px-3 py-2.5 flex items-center justify-end gap-1">
-                  {showTransfer ? (
-                    <Button variant="outline" size="sm" onClick={() => { setTransferName(g.name); setTransferBatchId("auto"); setTransferAmount(0); }}>
-                      <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Transfer
-                    </Button>
-                  ) : (
-                    <Button variant="outline" size="sm" disabled title="Transfer disabled by Admin">
-                      <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Locked
-                    </Button>
-                  )}
+                <td className="px-3 py-2.5">
+                  <div className="flex items-center justify-end gap-1">
+                    {showTransfer ? (
+                      <Button variant="outline" size="sm" onClick={() => { setTransferName(g.name); setTransferBatchId("auto"); setTransferAmount(0); }}>
+                        <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Transfer
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="sm" disabled title="Transfer disabled by Admin">
+                        <ArrowLeftRight className="h-3.5 w-3.5 mr-1" /> Locked
+                      </Button>
+                    )}
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                        onClick={() => setDeleteItem({ name: g.name, batches: g.batches })}
+                        title="Delete item (Admin only)"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -540,6 +558,49 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
             <Button variant="outline" onClick={() => setTransferName(null)} disabled={transferring}>Cancel</Button>
             <Button onClick={handleTransfer} disabled={transferring || transferAmount <= 0}>
               {transferring ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Transferring…</> : <><ArrowLeftRight className="h-4 w-4 mr-2" /> Transfer Stock</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Item Confirmation Dialog */}
+      <Dialog open={!!deleteItem} onOpenChange={(o) => { if (!o && !deleting) setDeleteItem(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" /> Delete {deleteItem?.name}
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete <strong>all {deleteItem?.batches?.length} batch{deleteItem?.batches && deleteItem.batches.length !== 1 ? "es" : ""}</strong> of <strong>{deleteItem?.name}</strong> from inventory. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-1 text-sm">
+            <div><strong>Item:</strong> {deleteItem?.name}</div>
+            <div><strong>Batches:</strong> {deleteItem?.batches?.length}</div>
+            <div><strong>Total Stock:</strong> {deleteItem?.batches?.reduce((s: number, b: any) => s + b.mainQuantity + b.pharmacyQuantity, 0)} units</div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteItem(null)} disabled={deleting}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={async () => {
+                if (!deleteItem) return;
+                setDeleting(true);
+                try {
+                  for (const batch of deleteItem.batches) {
+                    await onDelete(batch.id);
+                  }
+                  toast.success(`${deleteItem.name} deleted successfully`);
+                  setDeleteItem(null);
+                } catch (e: any) {
+                  toast.error("Failed to delete: " + e.message);
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+            >
+              {deleting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Deleting…</> : <><Trash2 className="h-4 w-4 mr-2" /> Delete All Batches</>}
             </Button>
           </DialogFooter>
         </DialogContent>
