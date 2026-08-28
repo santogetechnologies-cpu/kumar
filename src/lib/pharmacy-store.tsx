@@ -611,29 +611,61 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         // Try medicines first, then materials
         const { data: meds } = await supabase
           .from("medicines")
-          .select("id, main_quantity")
+          .select("*")
           .eq("name", purchase.item)
           .eq("archived", false);
+        
         if (meds && meds.length > 0) {
-          // Find matching batch if possible, else update first
-          const matchBatch = meds.find(() => true); // simplified — add to first match
+          const matchBatch = meds.find((m: any) => purchase.batch && m.batch === purchase.batch);
           if (matchBatch) {
             await supabase
               .from("medicines")
               .update({ main_quantity: matchBatch.main_quantity + totalQty })
               .eq("id", matchBatch.id);
+          } else {
+            const template = meds[0];
+            await supabase.from("medicines").insert({
+              name: template.name,
+              category: template.category,
+              batch: purchase.batch || "NEW-" + Date.now().toString().slice(-4),
+              expiry: purchase.expiry || new Date(Date.now() + 31536000000).toISOString().split('T')[0],
+              main_quantity: totalQty,
+              pharmacy_quantity: 0,
+              min_level: template.min_level,
+              custom_min_level: template.custom_min_level,
+              price: purchase.mrp || template.price,
+              supplier: purchase.supplier || template.supplier,
+            });
           }
         } else {
           const { data: mats } = await supabase
             .from("materials")
-            .select("id, main_quantity")
+            .select("*")
             .eq("name", purchase.item)
             .eq("archived", false);
+            
           if (mats && mats.length > 0) {
-            await supabase
-              .from("materials")
-              .update({ main_quantity: mats[0].main_quantity + totalQty })
-              .eq("id", mats[0].id);
+            const matchBatch = mats.find((m: any) => purchase.batch && m.batch === purchase.batch);
+            if (matchBatch) {
+              await supabase
+                .from("materials")
+                .update({ main_quantity: matchBatch.main_quantity + totalQty })
+                .eq("id", matchBatch.id);
+            } else {
+              const template = mats[0];
+              await supabase.from("materials").insert({
+                name: template.name,
+                category: template.category,
+                batch: purchase.batch || "NEW-" + Date.now().toString().slice(-4),
+                expiry: purchase.expiry || new Date(Date.now() + 31536000000).toISOString().split('T')[0],
+                main_quantity: totalQty,
+                pharmacy_quantity: 0,
+                min_level: template.min_level,
+                custom_min_level: template.custom_min_level,
+                price: purchase.mrp || template.price,
+                supplier: purchase.supplier || template.supplier,
+              });
+            }
           }
         }
         await loadMedicines();
