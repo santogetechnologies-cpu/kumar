@@ -112,50 +112,51 @@ function LoginPage() {
           <div className="flex lg:hidden flex-col mb-10">
             <img src="/kumar-logo.png" alt="Logo" className="h-14 w-14 object-contain mb-4" />
             <h1 className="text-4xl font-extrabold text-[#4F75FF] tracking-tight leading-tight">
-              Family<br/>health<br/>protection
+              Smart<br/>Pharmacy
             </h1>
+            <p className="text-slate-500 mt-2">Welcome back, please enter your details.</p>
           </div>
 
           {/* Desktop Heading exactly mimicking the image */}
-          <div className="hidden lg:block mb-16 text-left">
-            <h1 className="text-5xl xl:text-[72px] font-extrabold text-[#4F75FF] leading-[1.02] tracking-[-0.02em]">
-              Family<br/>
-              health<br/>
-              protection
+          <div className="hidden lg:block mb-12 text-left">
+            <h1 className="text-5xl xl:text-[72px] font-extrabold text-[#4F75FF] leading-[1.02] tracking-[-0.02em] drop-shadow-sm">
+              Smart<br/>
+              Pharmacy
             </h1>
+            <p className="text-slate-500 mt-4 text-lg font-medium">Welcome back, please enter your details.</p>
           </div>
 
           {/* Form */}
           <form onSubmit={submit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm font-semibold text-slate-600">Email Address</Label>
+              <Label htmlFor="email" className="text-sm font-semibold text-slate-600 ml-1">Email Address</Label>
               <Input
                 id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="doctor@kumarhospital.com"
-                className="h-14 bg-slate-50 border-slate-200 focus-visible:bg-white focus-visible:ring-[#4F75FF]/20 focus-visible:border-[#4F75FF] rounded-xl text-base px-4 shadow-sm transition-all"
+                className="h-14 bg-slate-50 hover:bg-slate-100 border-slate-200 focus-visible:bg-white focus-visible:ring-4 focus-visible:ring-[#4F75FF]/10 focus-visible:border-[#4F75FF] rounded-xl text-base px-5 shadow-sm transition-all duration-200"
                 autoComplete="email"
               />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm font-semibold text-slate-600">Password</Label>
+              <Label htmlFor="password" className="text-sm font-semibold text-slate-600 ml-1">Password</Label>
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="h-14 bg-slate-50 border-slate-200 focus-visible:bg-white focus-visible:ring-[#4F75FF]/20 focus-visible:border-[#4F75FF] rounded-xl text-base px-4 shadow-sm transition-all"
+                className="h-14 bg-slate-50 hover:bg-slate-100 border-slate-200 focus-visible:bg-white focus-visible:ring-4 focus-visible:ring-[#4F75FF]/10 focus-visible:border-[#4F75FF] rounded-xl text-base px-5 shadow-sm transition-all duration-200"
                 autoComplete="current-password"
               />
             </div>
 
             <Button 
               type="submit" 
-              className="w-full h-14 text-lg font-bold rounded-xl bg-[#4F75FF] hover:bg-[#3d5ed1] text-white shadow-[0_8px_20px_-8px_rgba(79,117,255,0.5)] transition-all active:scale-[0.98] mt-6" 
+              className="w-full h-14 text-lg font-bold rounded-xl bg-[#4F75FF] hover:bg-[#3d5ed1] text-white shadow-[0_8px_20px_-8px_rgba(79,117,255,0.6)] hover:shadow-[0_12px_25px_-8px_rgba(79,117,255,0.7)] transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 mt-8" 
               disabled={submitting}
             >
               {submitting ? (
