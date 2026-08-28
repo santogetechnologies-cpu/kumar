@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Plus, User, Activity, Circle, ShieldPlus } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
@@ -43,151 +43,129 @@ function LoginPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
-        <Loader2 className="h-10 w-10 animate-spin text-[#5271FF]" />
+        <Loader2 className="h-10 w-10 animate-spin text-[#4F75FF]" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex w-full bg-white font-sans selection:bg-blue-100 overflow-hidden">
+    <div className="min-h-screen w-full flex bg-white font-sans selection:bg-blue-100">
       
-      {/* Left side: Blue Graphic Section with White Cross & Dashboards */}
-      <div className="hidden lg:flex w-[55%] relative overflow-hidden bg-[#5271FF] items-center justify-center rounded-br-[150px] shadow-2xl z-10">
+      {/* Left side: The Medical Cross Visual (Hidden on mobile) */}
+      <div className="hidden lg:block lg:w-[45%] xl:w-[50%] relative bg-[#4F75FF]">
+        {/* 
+          To create the negative-space cross from the image:
+          We place white rectangles over the blue background. 
+          The horizontal rectangle extends fully to the right edge so it merges with the white right-panel.
+        */}
         
-        {/* The Huge White Cross */}
-        <div className="absolute w-[180%] h-[320px] bg-white rotate-0 shadow-sm"></div>
-        <div className="absolute h-[180%] w-[320px] bg-white rotate-0 shadow-sm"></div>
+        {/* Vertical Bar of the Cross */}
+        <div className="absolute top-[15%] bottom-[20%] left-[35%] w-[140px] bg-white rounded-t-2xl rounded-b-2xl shadow-sm"></div>
         
-        {/* Abstract Dashboard Elements */}
+        {/* Horizontal Bar of the Cross */}
+        <div className="absolute top-1/2 -translate-y-1/2 left-[15%] right-0 h-[140px] bg-white rounded-l-2xl shadow-sm z-10"></div>
         
-        {/* Top left (Blue area) - Data bars */}
-        <div className="absolute top-[12%] left-[12%] flex flex-col gap-4">
-           <div className="h-2 w-16 bg-white/40 rounded-full"></div>
-           <div className="h-2 w-28 bg-white/40 rounded-full"></div>
-           <div className="h-2 w-12 bg-white/40 rounded-full"></div>
+        {/* Decorative Dashboard Lines (Top Left) */}
+        <div className="absolute top-[15%] left-[10%] flex flex-col gap-3">
+          <div className="h-1.5 w-12 bg-white/40 rounded-full"></div>
+          <div className="h-1.5 w-20 bg-white/40 rounded-full"></div>
+          <div className="h-1.5 w-8 bg-white/40 rounded-full"></div>
         </div>
 
-        {/* Top left (Pills/Dots) */}
-        <div className="absolute top-[15%] left-[25%] grid grid-cols-2 gap-2">
-           <div className="h-3 w-3 rounded-full border-2 border-white/50"></div>
-           <div className="h-3 w-3 rounded-full border-2 border-white/50"></div>
-           <div className="h-3 w-3 rounded-full border-2 border-white/50"></div>
-           <div className="h-3 w-3 rounded-full border-2 border-white/50"></div>
-        </div>
-        
-        {/* Top Center (Profile icon in circle) in Blue area */}
-        <div className="absolute top-[8%] left-[45%]">
-           <div className="w-28 h-28 rounded-full border-[3px] border-white/40 flex items-center justify-center">
-              <User className="w-14 h-14 text-white/70" />
-           </div>
-           <div className="w-16 h-1 bg-white/40 mx-auto mt-4 rounded-full"></div>
-           <div className="w-24 h-1 bg-white/40 mx-auto mt-2 rounded-full"></div>
-        </div>
-        
-        {/* Center left (on the white cross) - Blue Plus */}
-        <div className="absolute top-[42%] left-[10%] text-[#5271FF]">
-           <Plus className="w-28 h-28" strokeWidth={2.5} />
-        </div>
-        
-        {/* Center Right (on the white cross) - Donut charts */}
-        <div className="absolute top-[40%] right-[10%] flex items-center gap-6 text-[#5271FF]">
-           <div className="w-24 h-24 rounded-full border-[8px] border-[#5271FF] border-r-[#5271FF]/20 rotate-45 relative">
-              <div className="absolute inset-2 border-[4px] border-[#5271FF]/30 border-t-[#5271FF] rounded-full rotate-[120deg]"></div>
-           </div>
-           <div className="flex flex-col gap-3">
-             <div className="w-10 h-10 rounded-full border-[5px] border-[#5271FF]"></div>
-             <div className="w-10 h-10 rounded-full border-[5px] border-[#5271FF]"></div>
-           </div>
-        </div>
-        
-        {/* Bottom Left (Blue area) - Bar chart */}
-        <div className="absolute bottom-[20%] left-[20%] flex items-end gap-3 h-24">
-           <div className="w-3 h-10 bg-white/40 rounded-t-sm"></div>
-           <div className="w-3 h-16 bg-white/40 rounded-t-sm"></div>
-           <div className="w-3 h-24 bg-white/80 rounded-t-sm"></div>
-           <div className="w-3 h-14 bg-white/40 rounded-t-sm"></div>
-           <div className="w-3 h-12 bg-white/40 rounded-t-sm"></div>
-           <div className="w-3 h-20 bg-white/60 rounded-t-sm"></div>
-           <div className="w-3 h-16 bg-white/40 rounded-t-sm"></div>
+        {/* Decorative Profile Node (Top Center-Right) */}
+        <div className="absolute top-[20%] left-[60%] flex flex-col items-center">
+          <div className="h-20 w-20 rounded-full border-2 border-white/50 flex items-center justify-center relative">
+             <div className="w-8 h-8 bg-white/40 rounded-full absolute top-3"></div>
+             <div className="w-12 h-6 bg-white/40 rounded-t-full absolute bottom-3"></div>
+          </div>
+          <div className="h-1 w-12 bg-white/40 rounded-full mt-3"></div>
         </div>
 
-        {/* Bottom Right (Blue area) - Shield Icon */}
-        <div className="absolute bottom-[15%] right-[25%] opacity-80">
-           <ShieldPlus className="w-24 h-24 text-white" strokeWidth={1.5} />
+        {/* Decorative Charts (Bottom Right in the blue) */}
+        <div className="absolute bottom-[25%] left-[65%] flex items-center gap-4">
+           <div className="w-16 h-16 rounded-full border-[6px] border-white/40 border-r-transparent rotate-45"></div>
+           <div className="w-10 h-10 rounded-full border-[4px] border-white/40"></div>
         </div>
         
-        {/* Center (Intersection of cross) - Logo or central graphic */}
-        <div className="absolute z-20 flex items-center justify-center p-6 bg-white rounded-full shadow-[0_0_50px_rgba(82,113,255,0.15)]">
-           <img src="/kumar-logo.png" alt="Kumar Logo" className="w-24 h-24 object-contain" />
+        {/* Brand/Logo overlay in the center of the cross */}
+        <div className="absolute top-1/2 left-[35%] -translate-y-1/2 ml-[70px] -translate-x-1/2 z-20">
+          <img src="/kumar-logo.png" alt="Logo" className="w-20 h-20 object-contain drop-shadow-xl" />
         </div>
       </div>
 
-      {/* Right side: Login Form & Text */}
-      <div className="flex-1 flex flex-col justify-center items-center p-6 lg:p-16 relative bg-white">
+      {/* Right side: The Login Form */}
+      <div className="flex-1 flex flex-col justify-center items-center p-8 lg:p-16 relative bg-white z-10">
         
-        {/* Bottom right leaf shapes (Cyan/Blue) */}
-        <div className="absolute -bottom-24 -right-10 w-[450px] h-[450px] bg-gradient-to-tr from-cyan-400 to-[#3b82f6] rounded-tl-[250px] rounded-bl-[50px] rounded-tr-[50px] opacity-90 rotate-[-15deg] pointer-events-none"></div>
-        <div className="absolute -bottom-40 right-20 w-[350px] h-[350px] bg-gradient-to-tr from-[#5271FF] to-[#2563eb] rounded-tl-[200px] rounded-bl-[30px] rounded-tr-[30px] opacity-90 rotate-[-45deg] pointer-events-none"></div>
-
-        {/* Mobile Logo Header (Hidden on Desktop) */}
-        <div className="flex lg:hidden flex-col items-center mb-10 text-center z-10">
-          <img src="/kumar-logo.png" alt="Logo" className="h-16 w-16 object-contain mb-4" />
+        {/* Leaf graphics at bottom right (using simple clean SVGs) */}
+        <div className="absolute bottom-0 right-0 pointer-events-none opacity-90 overflow-hidden w-64 h-64 lg:w-96 lg:h-96">
+          <svg viewBox="0 0 200 200" className="absolute bottom-[-10%] right-[-10%] w-[120%] h-[120%] text-cyan-400">
+             <path fill="currentColor" d="M 100,200 C 100,100 200,100 200,0 C 200,100 100,100 100,200 Z" />
+          </svg>
+          <svg viewBox="0 0 200 200" className="absolute bottom-[-20%] right-[-5%] w-[100%] h-[100%] text-[#4F75FF]">
+             <path fill="currentColor" d="M 50,200 C 50,120 150,120 150,20 C 150,120 50,120 50,200 Z" />
+          </svg>
         </div>
 
-        <div className="w-full max-w-[420px] z-10">
-          {/* Main Heading mimicking the reference image */}
-          <div className="mb-12 text-left">
-            <h1 className="text-6xl lg:text-[75px] font-black text-[#5271FF] leading-[1.05] tracking-tight">
+        <div className="w-full max-w-sm relative z-10">
+          
+          {/* Mobile Branding (Hidden on large screens) */}
+          <div className="flex lg:hidden flex-col mb-10">
+            <img src="/kumar-logo.png" alt="Logo" className="h-14 w-14 object-contain mb-4" />
+            <h1 className="text-4xl font-extrabold text-[#4F75FF] tracking-tight leading-tight">
+              Family<br/>health<br/>protection
+            </h1>
+          </div>
+
+          {/* Desktop Heading exactly mimicking the image */}
+          <div className="hidden lg:block mb-16 text-left">
+            <h1 className="text-5xl xl:text-[72px] font-extrabold text-[#4F75FF] leading-[1.02] tracking-[-0.02em]">
               Family<br/>
               health<br/>
               protection
             </h1>
           </div>
 
-          <form onSubmit={submit} className="space-y-5 bg-white/95 backdrop-blur-md p-8 rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] border border-slate-100 relative">
-            <div className="mb-2">
-               <h2 className="text-xl font-bold text-slate-800">Pharmacy Login</h2>
-               <p className="text-sm text-slate-500 font-medium">Kumar Hospital Management</p>
-            </div>
-            
+          {/* Form */}
+          <form onSubmit={submit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm font-bold text-slate-700">Email Address</Label>
+              <Label htmlFor="email" className="text-sm font-semibold text-slate-600">Email Address</Label>
               <Input
                 id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@hospital.com"
-                className="h-14 text-base px-4 bg-slate-50 border-slate-200 focus-visible:bg-white focus-visible:ring-[#5271FF]/30 focus-visible:border-[#5271FF] rounded-xl transition-all"
+                placeholder="doctor@kumarhospital.com"
+                className="h-14 bg-slate-50 border-slate-200 focus-visible:bg-white focus-visible:ring-[#4F75FF]/20 focus-visible:border-[#4F75FF] rounded-xl text-base px-4 shadow-sm transition-all"
                 autoComplete="email"
               />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm font-bold text-slate-700">Password</Label>
+              <Label htmlFor="password" className="text-sm font-semibold text-slate-600">Password</Label>
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="h-14 text-base px-4 bg-slate-50 border-slate-200 focus-visible:bg-white focus-visible:ring-[#5271FF]/30 focus-visible:border-[#5271FF] rounded-xl transition-all"
+                className="h-14 bg-slate-50 border-slate-200 focus-visible:bg-white focus-visible:ring-[#4F75FF]/20 focus-visible:border-[#4F75FF] rounded-xl text-base px-4 shadow-sm transition-all"
                 autoComplete="current-password"
               />
             </div>
 
             <Button 
               type="submit" 
-              className="w-full h-14 text-lg font-bold rounded-xl bg-[#5271FF] hover:bg-[#405CDB] text-white shadow-lg shadow-[#5271FF]/30 transition-all active:scale-[0.98] mt-4" 
+              className="w-full h-14 text-lg font-bold rounded-xl bg-[#4F75FF] hover:bg-[#3d5ed1] text-white shadow-[0_8px_20px_-8px_rgba(79,117,255,0.5)] transition-all active:scale-[0.98] mt-6" 
               disabled={submitting}
             >
               {submitting ? (
-                <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Authenticating…</>
+                <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Signing in…</>
               ) : (
-                "Sign In"
+                "Log in"
               )}
             </Button>
           </form>
+
         </div>
       </div>
       
