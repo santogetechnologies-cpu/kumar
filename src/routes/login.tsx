@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Pill, Activity, HeartPulse } from "lucide-react";
+import { Loader2, Plus, User, Activity, Circle, ShieldPlus } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
@@ -43,85 +43,114 @@ function LoginPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
-        <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+        <Loader2 className="h-10 w-10 animate-spin text-[#5271FF]" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex w-full bg-white font-sans selection:bg-blue-100">
+    <div className="min-h-screen flex w-full bg-white font-sans selection:bg-blue-100 overflow-hidden">
       
-      {/* Left side: Premium Bright Graphic Section */}
-      <div className="hidden lg:flex flex-1 relative overflow-hidden bg-slate-50 flex-col justify-between p-12 xl:p-16 border-r border-slate-100">
+      {/* Left side: Blue Graphic Section with White Cross & Dashboards */}
+      <div className="hidden lg:flex w-[55%] relative overflow-hidden bg-[#5271FF] items-center justify-center rounded-br-[150px] shadow-2xl z-10">
         
-        {/* Abstract bright background elements (Mesh Gradient Effect) */}
-        <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-300/40 rounded-full mix-blend-multiply filter blur-[100px] opacity-70"></div>
-        <div className="absolute top-[10%] right-[-10%] w-[400px] h-[400px] bg-rose-300/40 rounded-full mix-blend-multiply filter blur-[100px] opacity-70"></div>
-        <div className="absolute bottom-[-10%] left-[10%] w-[600px] h-[600px] bg-indigo-300/40 rounded-full mix-blend-multiply filter blur-[100px] opacity-70"></div>
-        <div className="absolute bottom-[20%] right-[10%] w-[300px] h-[300px] bg-amber-200/40 rounded-full mix-blend-multiply filter blur-[80px] opacity-70"></div>
-
-        {/* Brand Header */}
-        <div className="relative z-10">
-          <div className="inline-flex items-center gap-4 bg-white/70 backdrop-blur-xl p-4 pr-6 rounded-2xl shadow-sm border border-white/80">
-            <div className="h-14 w-14 rounded-xl bg-white shadow-sm flex items-center justify-center">
-              <img src="/kumar-logo.png" alt="Logo" className="h-10 w-10 object-contain" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-black tracking-tight text-slate-900">
-                <span className="text-rose-600">Kumar</span> <span className="text-blue-600">Hospital</span>
-              </h1>
-              <p className="text-xs font-bold tracking-widest text-slate-500 uppercase mt-0.5">Pharmacy Module</p>
-            </div>
-          </div>
+        {/* The Huge White Cross */}
+        <div className="absolute w-[180%] h-[320px] bg-white rotate-0 shadow-sm"></div>
+        <div className="absolute h-[180%] w-[320px] bg-white rotate-0 shadow-sm"></div>
+        
+        {/* Abstract Dashboard Elements */}
+        
+        {/* Top left (Blue area) - Data bars */}
+        <div className="absolute top-[12%] left-[12%] flex flex-col gap-4">
+           <div className="h-2 w-16 bg-white/40 rounded-full"></div>
+           <div className="h-2 w-28 bg-white/40 rounded-full"></div>
+           <div className="h-2 w-12 bg-white/40 rounded-full"></div>
         </div>
 
-        {/* Value Proposition */}
-        <div className="relative z-10 max-w-lg mt-auto pb-8">
-          <h2 className="text-6xl font-black text-slate-900 leading-[1.1] tracking-tighter mb-6">
-            Smart inventory. <br/>
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Seamless care.</span>
-          </h2>
-          <p className="text-xl text-slate-600 font-medium leading-relaxed">
-            Experience the next generation of hospital pharmacy management. Fast dispensing, intelligent alerts, and complete control.
-          </p>
-          
-          {/* Minimal Feature Pills */}
-          <div className="flex flex-wrap items-center gap-4 mt-10">
-             <div className="flex items-center gap-2 font-semibold text-slate-700 bg-white/80 backdrop-blur-md px-5 py-2.5 rounded-full shadow-sm border border-white">
-               <Pill className="w-5 h-5 text-blue-500"/> Inventory
-             </div>
-             <div className="flex items-center gap-2 font-semibold text-slate-700 bg-white/80 backdrop-blur-md px-5 py-2.5 rounded-full shadow-sm border border-white">
-               <Activity className="w-5 h-5 text-rose-500"/> Analytics
-             </div>
-             <div className="flex items-center gap-2 font-semibold text-slate-700 bg-white/80 backdrop-blur-md px-5 py-2.5 rounded-full shadow-sm border border-white">
-               <HeartPulse className="w-5 h-5 text-indigo-500"/> Patient Care
-             </div>
-          </div>
+        {/* Top left (Pills/Dots) */}
+        <div className="absolute top-[15%] left-[25%] grid grid-cols-2 gap-2">
+           <div className="h-3 w-3 rounded-full border-2 border-white/50"></div>
+           <div className="h-3 w-3 rounded-full border-2 border-white/50"></div>
+           <div className="h-3 w-3 rounded-full border-2 border-white/50"></div>
+           <div className="h-3 w-3 rounded-full border-2 border-white/50"></div>
+        </div>
+        
+        {/* Top Center (Profile icon in circle) in Blue area */}
+        <div className="absolute top-[8%] left-[45%]">
+           <div className="w-28 h-28 rounded-full border-[3px] border-white/40 flex items-center justify-center">
+              <User className="w-14 h-14 text-white/70" />
+           </div>
+           <div className="w-16 h-1 bg-white/40 mx-auto mt-4 rounded-full"></div>
+           <div className="w-24 h-1 bg-white/40 mx-auto mt-2 rounded-full"></div>
+        </div>
+        
+        {/* Center left (on the white cross) - Blue Plus */}
+        <div className="absolute top-[42%] left-[10%] text-[#5271FF]">
+           <Plus className="w-28 h-28" strokeWidth={2.5} />
+        </div>
+        
+        {/* Center Right (on the white cross) - Donut charts */}
+        <div className="absolute top-[40%] right-[10%] flex items-center gap-6 text-[#5271FF]">
+           <div className="w-24 h-24 rounded-full border-[8px] border-[#5271FF] border-r-[#5271FF]/20 rotate-45 relative">
+              <div className="absolute inset-2 border-[4px] border-[#5271FF]/30 border-t-[#5271FF] rounded-full rotate-[120deg]"></div>
+           </div>
+           <div className="flex flex-col gap-3">
+             <div className="w-10 h-10 rounded-full border-[5px] border-[#5271FF]"></div>
+             <div className="w-10 h-10 rounded-full border-[5px] border-[#5271FF]"></div>
+           </div>
+        </div>
+        
+        {/* Bottom Left (Blue area) - Bar chart */}
+        <div className="absolute bottom-[20%] left-[20%] flex items-end gap-3 h-24">
+           <div className="w-3 h-10 bg-white/40 rounded-t-sm"></div>
+           <div className="w-3 h-16 bg-white/40 rounded-t-sm"></div>
+           <div className="w-3 h-24 bg-white/80 rounded-t-sm"></div>
+           <div className="w-3 h-14 bg-white/40 rounded-t-sm"></div>
+           <div className="w-3 h-12 bg-white/40 rounded-t-sm"></div>
+           <div className="w-3 h-20 bg-white/60 rounded-t-sm"></div>
+           <div className="w-3 h-16 bg-white/40 rounded-t-sm"></div>
+        </div>
+
+        {/* Bottom Right (Blue area) - Shield Icon */}
+        <div className="absolute bottom-[15%] right-[25%] opacity-80">
+           <ShieldPlus className="w-24 h-24 text-white" strokeWidth={1.5} />
+        </div>
+        
+        {/* Center (Intersection of cross) - Logo or central graphic */}
+        <div className="absolute z-20 flex items-center justify-center p-6 bg-white rounded-full shadow-[0_0_50px_rgba(82,113,255,0.15)]">
+           <img src="/kumar-logo.png" alt="Kumar Logo" className="w-24 h-24 object-contain" />
         </div>
       </div>
 
-      {/* Right side: Login Form */}
-      <div className="flex-1 flex flex-col justify-center items-center p-6 lg:p-12 z-10 bg-white shadow-[-20px_0_40px_-15px_rgba(0,0,0,0.02)]">
+      {/* Right side: Login Form & Text */}
+      <div className="flex-1 flex flex-col justify-center items-center p-6 lg:p-16 relative bg-white">
         
-        {/* Mobile Header */}
-        <div className="flex lg:hidden flex-col items-center mb-10 text-center">
-          <div className="h-20 w-20 rounded-2xl bg-white shadow-sm border border-slate-100 flex items-center justify-center mb-4">
-            <img src="/kumar-logo.png" alt="Logo" className="h-14 w-14 object-contain" />
-          </div>
-          <h1 className="text-3xl font-black tracking-tight text-slate-900">
-            <span className="text-rose-600">Kumar</span> <span className="text-blue-600">Hospital</span>
-          </h1>
-          <p className="text-sm font-bold tracking-widest text-slate-500 uppercase mt-1">Pharmacy Module</p>
+        {/* Bottom right leaf shapes (Cyan/Blue) */}
+        <div className="absolute -bottom-24 -right-10 w-[450px] h-[450px] bg-gradient-to-tr from-cyan-400 to-[#3b82f6] rounded-tl-[250px] rounded-bl-[50px] rounded-tr-[50px] opacity-90 rotate-[-15deg] pointer-events-none"></div>
+        <div className="absolute -bottom-40 right-20 w-[350px] h-[350px] bg-gradient-to-tr from-[#5271FF] to-[#2563eb] rounded-tl-[200px] rounded-bl-[30px] rounded-tr-[30px] opacity-90 rotate-[-45deg] pointer-events-none"></div>
+
+        {/* Mobile Logo Header (Hidden on Desktop) */}
+        <div className="flex lg:hidden flex-col items-center mb-10 text-center z-10">
+          <img src="/kumar-logo.png" alt="Logo" className="h-16 w-16 object-contain mb-4" />
         </div>
 
-        <div className="w-full max-w-[400px]">
-          <div className="mb-10 text-center lg:text-left">
-            <h2 className="text-4xl font-black text-slate-900 tracking-tight">Welcome back</h2>
-            <p className="text-slate-500 mt-3 text-lg font-medium">Enter your credentials to access the pharmacy.</p>
+        <div className="w-full max-w-[420px] z-10">
+          {/* Main Heading mimicking the reference image */}
+          <div className="mb-12 text-left">
+            <h1 className="text-6xl lg:text-[75px] font-black text-[#5271FF] leading-[1.05] tracking-tight">
+              Family<br/>
+              health<br/>
+              protection
+            </h1>
           </div>
 
-          <form onSubmit={submit} className="space-y-6">
-            <div className="space-y-2.5">
+          <form onSubmit={submit} className="space-y-5 bg-white/95 backdrop-blur-md p-8 rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] border border-slate-100 relative">
+            <div className="mb-2">
+               <h2 className="text-xl font-bold text-slate-800">Pharmacy Login</h2>
+               <p className="text-sm text-slate-500 font-medium">Kumar Hospital Management</p>
+            </div>
+            
+            <div className="space-y-2">
               <Label htmlFor="email" className="text-sm font-bold text-slate-700">Email Address</Label>
               <Input
                 id="email"
@@ -129,12 +158,12 @@ function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@hospital.com"
-                className="h-14 text-base px-4 bg-slate-50/50 border-slate-200 focus-visible:bg-white focus-visible:ring-blue-500/30 focus-visible:border-blue-500 rounded-xl transition-all"
+                className="h-14 text-base px-4 bg-slate-50 border-slate-200 focus-visible:bg-white focus-visible:ring-[#5271FF]/30 focus-visible:border-[#5271FF] rounded-xl transition-all"
                 autoComplete="email"
               />
             </div>
             
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               <Label htmlFor="password" className="text-sm font-bold text-slate-700">Password</Label>
               <Input
                 id="password"
@@ -142,20 +171,20 @@ function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="h-14 text-base px-4 bg-slate-50/50 border-slate-200 focus-visible:bg-white focus-visible:ring-blue-500/30 focus-visible:border-blue-500 rounded-xl transition-all"
+                className="h-14 text-base px-4 bg-slate-50 border-slate-200 focus-visible:bg-white focus-visible:ring-[#5271FF]/30 focus-visible:border-[#5271FF] rounded-xl transition-all"
                 autoComplete="current-password"
               />
             </div>
 
             <Button 
               type="submit" 
-              className="w-full h-14 text-lg font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20 transition-all active:scale-[0.98] mt-4" 
+              className="w-full h-14 text-lg font-bold rounded-xl bg-[#5271FF] hover:bg-[#405CDB] text-white shadow-lg shadow-[#5271FF]/30 transition-all active:scale-[0.98] mt-4" 
               disabled={submitting}
             >
               {submitting ? (
                 <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Authenticating…</>
               ) : (
-                "Sign In to Dashboard"
+                "Sign In"
               )}
             </Button>
           </form>
