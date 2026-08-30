@@ -353,6 +353,7 @@ export function UserManagementTab() {
                 <SelectItem value="A4-Portrait">A4 Portrait (Vertical)</SelectItem>
                 <SelectItem value="A4-Landscape">A4 Landscape (Horizontal)</SelectItem>
                 <SelectItem value="Thermal">Thermal Receipt (80mm)</SelectItem>
+                <SelectItem value="DotMatrix">Dot Matrix</SelectItem>
               </SelectContent>
             </Select>
           </div>

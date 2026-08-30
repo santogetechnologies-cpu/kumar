@@ -13,6 +13,10 @@ interface BillPrintDialogProps {
 export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintDialogProps) {
   if (!bill) return null;
 
+  const isThermal = format === "Thermal";
+  const isLandscape = format === "A4-Landscape";
+  const isDotMatrix = format === "DotMatrix";
+
   const handlePrint = () => {
     const printContent = document.getElementById("printable-bill");
     if (!printContent) return;
@@ -41,12 +45,16 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
             }
             body {
               margin: 0;
-              padding: ${isThermal ? "4mm" : "12mm"};
+              padding: ${isThermal ? "4mm" : isDotMatrix ? "5mm" : "12mm"};
               -webkit-print-color-adjust: exact;
+              box-sizing: border-box;
             }
             #printable-bill {
-              width: ${isThermal ? "80mm" : isLandscape ? "297mm" : "210mm"} !important;
+              width: 100% !important;
+              max-width: ${isThermal ? "80mm" : isLandscape ? "297mm" : "210mm"} !important;
+              box-sizing: border-box;
               box-shadow: none !important;
+              margin: 0 auto !important;
             }
           </style>
         </head>
@@ -67,8 +75,6 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
     }, 500);
   };
 
-  const isThermal = format === "Thermal";
-  const isLandscape = format === "A4-Landscape";
   // Portrait = A4-Portrait or legacy "A4"
 
   return (
@@ -78,7 +84,7 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
           <div>
             <h2 className="text-xl font-bold">Print Bill</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Format: {isThermal ? "Thermal 80mm" : isLandscape ? "A4 Landscape (Horizontal)" : "A4 Portrait (Vertical)"}
+              Format: {isThermal ? "Thermal 80mm" : isLandscape ? "A4 Landscape (Horizontal)" : isDotMatrix ? "Dot Matrix" : "A4 Portrait (Vertical)"}
             </p>
           </div>
           <div className="flex gap-2">
@@ -91,11 +97,13 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
           {/* Bill Printable Area */}
           <div
             id="printable-bill"
-            className={`bg-white text-black shadow-sm print:shadow-none print:m-0 ${
+            className={`bg-white text-black shadow-sm print:shadow-none mx-auto ${
               isThermal
                 ? "w-[80mm] text-[12px] p-4"
                 : isLandscape
                 ? "w-[297mm] min-h-[210mm] text-sm p-10"
+                : isDotMatrix
+                ? "w-[210mm] font-mono text-sm p-6"
                 : "w-[210mm] min-h-[297mm] text-sm p-10"
             }`}
           >
@@ -104,7 +112,7 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
               <h1 className={`${isThermal ? "text-xl" : "text-3xl"} font-bold uppercase tracking-wider`}>
                 KUMAR HMIS
               </h1>
-              <p className="text-gray-500 mt-1 text-sm">123 Health Avenue, Medical District</p>
+              <p className="text-gray-500 mt-1 text-sm">Trivandrum - Nagercoil Highway, Manali Junction, Thuckalay, Tamil Nadu - 629175</p>
               <p className="text-gray-500 text-sm">Ph: +91 9876543210</p>
               <h2 className="font-bold mt-3 uppercase border bg-gray-100 py-1 text-sm tracking-widest">Cash Receipt</h2>
             </div>
