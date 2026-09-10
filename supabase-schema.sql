@@ -88,11 +88,11 @@ CREATE TABLE public.bills (
 ALTER TABLE public.bills ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Authenticated access to bills" ON bills FOR ALL USING (auth.role() = 'authenticated');
 
--- 5. Bill Items
+-- 5. Bill Items (supports both medicines and materials)
 CREATE TABLE public.bill_items (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   bill_id TEXT REFERENCES bills(id) ON DELETE CASCADE,
-  medicine_id UUID REFERENCES medicines(id) ON DELETE SET NULL,
+  medicine_id UUID,
   name TEXT NOT NULL,
   quantity INTEGER NOT NULL,
   price DECIMAL(10,2) NOT NULL

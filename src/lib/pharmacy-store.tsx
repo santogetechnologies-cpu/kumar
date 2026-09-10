@@ -470,19 +470,31 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     const { error: itemErr } = await supabase.from("bill_items").insert(itemInserts);
     if (itemErr) throw itemErr;
 
-    // Deduct stock from medicine rows (FIFO — handled by caller's breakdown)
+    // Deduct stock from medicine or material rows (FIFO — handled by caller's breakdown)
     for (const it of data.items) {
       if (it.medicineId) {
         const { data: med } = await supabase
           .from("medicines")
           .select("pharmacy_quantity")
           .eq("id", it.medicineId)
-          .single();
+          .maybeSingle();
         if (med) {
           await supabase
             .from("medicines")
             .update({ pharmacy_quantity: Math.max(0, med.pharmacy_quantity - it.quantity) })
             .eq("id", it.medicineId);
+        } else {
+          const { data: mat } = await supabase
+            .from("materials")
+            .select("pharmacy_quantity")
+            .eq("id", it.medicineId)
+            .maybeSingle();
+          if (mat) {
+            await supabase
+              .from("materials")
+              .update({ pharmacy_quantity: Math.max(0, mat.pharmacy_quantity - it.quantity) })
+              .eq("id", it.medicineId);
+          }
         }
       }
     }
@@ -510,7 +522,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     };
 
     setBills((prev) => [newBill, ...prev]);
-    await loadMedicines(); // refresh stock
+    await Promise.all([loadMedicines(), loadMaterials()]); // refresh stock
     return newBill;
   }, []);
 
@@ -533,17 +545,29 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         .from("bill_items")
         .update({ refunded_quantity: newRefunded })
         .eq("id", item.id);
-      // Return to pharmacy stock
+      // Return to pharmacy stock (check medicines first, then materials)
       const { data: med } = await supabase
         .from("medicines")
         .select("pharmacy_quantity")
         .eq("id", ref.medicineId)
-        .single();
+        .maybeSingle();
       if (med) {
         await supabase
           .from("medicines")
           .update({ pharmacy_quantity: med.pharmacy_quantity + ref.quantity })
           .eq("id", ref.medicineId);
+      } else {
+        const { data: mat } = await supabase
+          .from("materials")
+          .select("pharmacy_quantity")
+          .eq("id", ref.medicineId)
+          .maybeSingle();
+        if (mat) {
+          await supabase
+            .from("materials")
+            .update({ pharmacy_quantity: mat.pharmacy_quantity + ref.quantity })
+            .eq("id", ref.medicineId);
+        }
       }
     }
 
@@ -558,8 +582,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       await supabase.from("bills").update({ status: newStatus }).eq("id", billId);
     }
 
-    await loadBills();
-    await loadMedicines();
+    await Promise.all([loadBills(), loadMedicines(), loadMaterials()]);
   }, []);
 
   const deleteBill = useCallback(async (id: string) => {
