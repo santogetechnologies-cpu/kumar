@@ -220,7 +220,7 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
             {/* Header */}
             <div className={`text-center border-b pb-3 mb-4 ${isThermal ? "border-dashed" : ""}`}>
               <h1 className={`${isThermal ? "text-lg" : isA5 ? "text-xl font-black" : "text-2xl font-bold"} uppercase tracking-wider`}>
-                KUMAR HMIS
+                KUMAR HOSPITAL
               </h1>
               <p className={`text-gray-600 mt-0.5 ${isThermal || isA5 ? "text-[11px]" : "text-xs"}`}>
                 Trivandrum - Nagercoil Highway, Manali Junction, Thuckalay, Tamil Nadu - 629175
@@ -331,7 +331,7 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
             {/* Footer */}
             <div className={`text-center pt-3 border-t text-gray-500 ${isThermal || isA5 ? "mt-6 text-[10px]" : "mt-8 text-xs"}`}>
               <p>Thank you for your visit!</p>
-              <p>Get well soon. — Kumar HMIS</p>
+              <p>Get well soon. — Kumar Hospital</p>
             </div>
           </div>
         </div>
