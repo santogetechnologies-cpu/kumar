@@ -45,6 +45,7 @@ import {
   Lock
 } from "lucide-react";
 import { toast } from "sonner";
+import { normalizePrintFormat } from "./BillPrintDialog";
 
 interface PharmacyUser {
   id: string;
@@ -347,11 +348,13 @@ export function UserManagementTab() {
               <h4 className="font-semibold">Default Print Format</h4>
               <p className="text-sm text-muted-foreground mt-1">Choose the preferred format for printing bills.</p>
             </div>
-            <Select value={printFormat} onValueChange={(v) => updateSetting("print_format", v)}>
-              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+            <Select value={normalizePrintFormat(printFormat)} onValueChange={(v) => updateSetting("print_format", v)}>
+              <SelectTrigger className="w-60"><SelectValue placeholder="Select format" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="A4-Portrait">A4 Portrait (Vertical)</SelectItem>
                 <SelectItem value="A4-Landscape">A4 Landscape (Horizontal)</SelectItem>
+                <SelectItem value="A5-Portrait">A5 Portrait (Vertical)</SelectItem>
+                <SelectItem value="A5-Landscape">A5 Landscape (Horizontal)</SelectItem>
                 <SelectItem value="Thermal">Thermal Receipt (80mm)</SelectItem>
                 <SelectItem value="DotMatrix">Dot Matrix</SelectItem>
               </SelectContent>
