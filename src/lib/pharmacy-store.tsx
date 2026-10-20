@@ -407,36 +407,107 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
 
   // ── BILLS ────────────────────────────────────
   const loadBills = async () => {
-    const { data: billRows, error: billErr } = await supabase
-      .from("bills")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(200);
-    if (billErr || !billRows) return;
+    try {
+      // 1. Relational select with pagination to load all bills and items
+      const PAGE_SIZE = 1000;
+      let allBillRows: any[] = [];
+      let from = 0;
+      let hasMore = true;
+      let joinFailed = false;
 
-    const billIds = billRows.map((b: any) => b.id);
-    if (billIds.length === 0) { setBills([]); return; }
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("bills")
+          .select("*, bill_items(*)")
+          .order("created_at", { ascending: false })
+          .range(from, from + PAGE_SIZE - 1);
 
-    const { data: itemRows, error: itemErr } = await supabase
-      .from("bill_items")
-      .select("*")
-      .in("bill_id", billIds);
-    if (itemErr) return;
+        if (error || !data) {
+          if (from === 0) {
+            joinFailed = true;
+          }
+          break;
+        }
 
-    const itemsByBill = new Map<string, BillItem[]>();
-    for (const item of itemRows ?? []) {
-      if (!itemsByBill.has(item.bill_id)) itemsByBill.set(item.bill_id, []);
-      itemsByBill.get(item.bill_id)!.push({
-        medicineId: item.medicine_id,
-        name: item.name,
-        quantity: item.quantity,
-        price: parseFloat(item.price),
-        refundedQuantity: item.refunded_quantity ?? 0,
-        batchId: item.batch_id ?? null,
-      });
+        allBillRows = allBillRows.concat(data);
+        if (data.length < PAGE_SIZE) {
+          hasMore = false;
+        } else {
+          from += PAGE_SIZE;
+        }
+      }
+
+      if (!joinFailed && allBillRows.length > 0) {
+        setBills(
+          allBillRows.map((row: any) => {
+            const items: BillItem[] = (row.bill_items ?? []).map((item: any) => ({
+              medicineId: item.medicine_id,
+              name: item.name,
+              quantity: item.quantity,
+              price: parseFloat(item.price),
+              refundedQuantity: item.refunded_quantity ?? 0,
+              batchId: item.batch_id ?? null,
+            }));
+            return mapBill(row, items);
+          })
+        );
+        return;
+      }
+      if (!joinFailed && allBillRows.length === 0) {
+        setBills([]);
+        return;
+      }
+
+      // 2. Fallback in case embedded bill_items query fails
+      let fallbackBillRows: any[] = [];
+      from = 0;
+      hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("bills")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .range(from, from + PAGE_SIZE - 1);
+
+        if (error || !data) break;
+        fallbackBillRows = fallbackBillRows.concat(data);
+        if (data.length < PAGE_SIZE) {
+          hasMore = false;
+        } else {
+          from += PAGE_SIZE;
+        }
+      }
+
+      const billIds = fallbackBillRows.map((b: any) => b.id);
+      if (billIds.length === 0) { setBills([]); return; }
+
+      const itemsByBill = new Map<string, BillItem[]>();
+      // Batch bill_id lookup in chunks of 100 to prevent HTTP URI length overflow
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < billIds.length; i += BATCH_SIZE) {
+        const batch = billIds.slice(i, i + BATCH_SIZE);
+        const { data: itemRows } = await supabase
+          .from("bill_items")
+          .select("*")
+          .in("bill_id", batch);
+
+        for (const item of itemRows ?? []) {
+          if (!itemsByBill.has(item.bill_id)) itemsByBill.set(item.bill_id, []);
+          itemsByBill.get(item.bill_id)!.push({
+            medicineId: item.medicine_id,
+            name: item.name,
+            quantity: item.quantity,
+            price: parseFloat(item.price),
+            refundedQuantity: item.refunded_quantity ?? 0,
+            batchId: item.batch_id ?? null,
+          });
+        }
+      }
+
+      setBills(fallbackBillRows.map((row: any) => mapBill(row, itemsByBill.get(row.id) ?? [])));
+    } catch (err) {
+      console.error("Error loading bills:", err);
     }
-
-    setBills(billRows.map((row: any) => mapBill(row, itemsByBill.get(row.id) ?? [])));
   };
 
   const addBill = useCallback(async (data: {
@@ -596,8 +667,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase
       .from("purchases")
       .select("*")
-      .order("created_at", { ascending: false })
-      .limit(300);
+      .order("created_at", { ascending: false });
     if (!error && data) setPurchases(data.map(mapPurchase));
   };
 
@@ -800,8 +870,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase
       .from("expenses")
       .select("*")
-      .order("created_at", { ascending: false })
-      .limit(200);
+      .order("created_at", { ascending: false });
     if (!error && data) {
       setExpenses(data.map((e: any) => ({
         id: e.id,
