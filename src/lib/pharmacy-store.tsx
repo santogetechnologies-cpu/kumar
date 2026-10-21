@@ -408,88 +408,37 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
   // ── BILLS ────────────────────────────────────
   const loadBills = async () => {
     try {
-      // 1. Relational select with pagination to load all bills and items
-      const PAGE_SIZE = 1000;
-      let allBillRows: any[] = [];
-      let from = 0;
-      let hasMore = true;
-      let joinFailed = false;
+      const { data: billRows, error: billErr } = await supabase
+        .from("bills")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from("bills")
-          .select("*, bill_items(*)")
-          .order("created_at", { ascending: false })
-          .range(from, from + PAGE_SIZE - 1);
-
-        if (error || !data) {
-          if (from === 0) {
-            joinFailed = true;
-          }
-          break;
-        }
-
-        allBillRows = allBillRows.concat(data);
-        if (data.length < PAGE_SIZE) {
-          hasMore = false;
-        } else {
-          from += PAGE_SIZE;
-        }
-      }
-
-      if (!joinFailed && allBillRows.length > 0) {
-        setBills(
-          allBillRows.map((row: any) => {
-            const items: BillItem[] = (row.bill_items ?? []).map((item: any) => ({
-              medicineId: item.medicine_id,
-              name: item.name,
-              quantity: item.quantity,
-              price: parseFloat(item.price),
-              refundedQuantity: item.refunded_quantity ?? 0,
-              batchId: item.batch_id ?? null,
-            }));
-            return mapBill(row, items);
-          })
-        );
+      if (billErr || !billRows) {
+        console.error("Error loading bills:", billErr);
         return;
       }
-      if (!joinFailed && allBillRows.length === 0) {
+
+      if (billRows.length === 0) {
         setBills([]);
         return;
       }
 
-      // 2. Fallback in case embedded bill_items query fails
-      let fallbackBillRows: any[] = [];
-      from = 0;
-      hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from("bills")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .range(from, from + PAGE_SIZE - 1);
-
-        if (error || !data) break;
-        fallbackBillRows = fallbackBillRows.concat(data);
-        if (data.length < PAGE_SIZE) {
-          hasMore = false;
-        } else {
-          from += PAGE_SIZE;
-        }
-      }
-
-      const billIds = fallbackBillRows.map((b: any) => b.id);
-      if (billIds.length === 0) { setBills([]); return; }
-
+      const billIds = billRows.map((b: any) => b.id);
       const itemsByBill = new Map<string, BillItem[]>();
-      // Batch bill_id lookup in chunks of 100 to prevent HTTP URI length overflow
+
+      // Fetch items in batches of 100 to avoid URI length overflow
       const BATCH_SIZE = 100;
       for (let i = 0; i < billIds.length; i += BATCH_SIZE) {
         const batch = billIds.slice(i, i + BATCH_SIZE);
-        const { data: itemRows } = await supabase
+        const { data: itemRows, error: itemErr } = await supabase
           .from("bill_items")
           .select("*")
           .in("bill_id", batch);
+
+        if (itemErr) {
+          console.error("Error loading bill items batch:", itemErr);
+          continue;
+        }
 
         for (const item of itemRows ?? []) {
           if (!itemsByBill.has(item.bill_id)) itemsByBill.set(item.bill_id, []);
@@ -504,7 +453,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      setBills(fallbackBillRows.map((row: any) => mapBill(row, itemsByBill.get(row.id) ?? [])));
+      setBills(billRows.map((row: any) => mapBill(row, itemsByBill.get(row.id) ?? [])));
     } catch (err) {
       console.error("Error loading bills:", err);
     }
