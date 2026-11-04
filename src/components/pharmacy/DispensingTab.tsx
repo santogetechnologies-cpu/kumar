@@ -114,7 +114,8 @@ export function DispensingTab() {
       }
     });
 
-    toast.success(`Added ${g.name}`);
+    const activeBatch = g.batches.find(b => b.pharmacyQuantity > 0) || g.batches[0];
+    toast.success(`Added ${g.name} (${activeBatch.batch} · ₹${activeBatch.price.toFixed(2)})`);
     setQ("");
     searchRef.current?.focus();
   };
@@ -466,8 +467,11 @@ export function DispensingTab() {
                     </div>
                     <div className="text-right shrink-0 ml-2 flex flex-col items-end">
                       <div className="font-extrabold text-primary text-lg tracking-tight">
-                        {g.batches.some(b => b.price !== firstBatch.price) 
-                           ? <span className="text-sm font-medium opacity-80">Multiple Prices</span>
+                        {g.batches.filter(b => b.pharmacyQuantity > 0).some(b => b.price !== firstBatch.price) 
+                           ? <div className="text-right">
+                               <span className="text-lg font-bold">₹{firstBatch.price.toFixed(2)}</span>
+                               <span className="block text-[10px] text-muted-foreground font-normal">Multiple batch rates</span>
+                             </div>
                            : `₹${firstBatch.price.toFixed(2)}`}
                       </div>
                       <div className="mt-1">

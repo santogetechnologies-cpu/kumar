@@ -426,8 +426,8 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       const billIds = billRows.map((b: any) => b.id);
       const itemsByBill = new Map<string, BillItem[]>();
 
-      // Fetch items in batches of 100 to avoid URI length overflow
-      const BATCH_SIZE = 100;
+      // Fetch items in batches of 50 to avoid URI length overflow and stay within PostgREST max_rows limits
+      const BATCH_SIZE = 50;
       for (let i = 0; i < billIds.length; i += BATCH_SIZE) {
         const batch = billIds.slice(i, i + BATCH_SIZE);
         const { data: itemRows, error: itemErr } = await supabase
@@ -660,9 +660,15 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         if (meds && meds.length > 0) {
           const matchBatch = meds.find((m: any) => purchase.batch && m.batch === purchase.batch);
           if (matchBatch) {
+            const updatePatch: Record<string, any> = {
+              main_quantity: matchBatch.main_quantity + totalQty,
+            };
+            if (purchase.mrp && purchase.mrp > 0) {
+              updatePatch.price = purchase.mrp;
+            }
             await supabase
               .from("medicines")
-              .update({ main_quantity: matchBatch.main_quantity + totalQty })
+              .update(updatePatch)
               .eq("id", matchBatch.id);
           } else {
             const template = meds[0];
@@ -689,9 +695,15 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
           if (mats && mats.length > 0) {
             const matchBatch = mats.find((m: any) => purchase.batch && m.batch === purchase.batch);
             if (matchBatch) {
+              const updatePatch: Record<string, any> = {
+                main_quantity: matchBatch.main_quantity + totalQty,
+              };
+              if (purchase.mrp && purchase.mrp > 0) {
+                updatePatch.price = purchase.mrp;
+              }
               await supabase
                 .from("materials")
-                .update({ main_quantity: matchBatch.main_quantity + totalQty })
+                .update(updatePatch)
                 .eq("id", matchBatch.id);
             } else {
               const template = mats[0];
@@ -708,6 +720,20 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
                 supplier: purchase.supplier || template.supplier,
               });
             }
+          } else {
+            // Item does not exist in inventory yet — auto-create as new medicine
+            await supabase.from("medicines").insert({
+              name: purchase.item,
+              category: "Tablet",
+              batch: purchase.batch || "NEW-" + Date.now().toString().slice(-4),
+              expiry: purchase.expiry || new Date(Date.now() + 31536000000).toISOString().split('T')[0],
+              main_quantity: totalQty,
+              pharmacy_quantity: 0,
+              min_level: 10,
+              custom_min_level: null,
+              price: purchase.mrp || purchase.cost || 0,
+              supplier: purchase.supplier || "",
+            });
           }
         }
         await loadMedicines();

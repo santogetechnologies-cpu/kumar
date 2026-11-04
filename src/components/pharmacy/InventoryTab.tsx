@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import {
   Package, FlaskConical, ShoppingCart, Calendar, AlertTriangle,
-  LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText, GitCompare, Loader2, ClipboardList, Settings2, Edit
+  LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText, GitCompare, Loader2, ClipboardList, Settings2, Edit, ChevronDown, ChevronRight
 } from "lucide-react";
 import { toast } from "sonner";
 import { InvoiceDialog, type InvoiceRow, type InvoiceMeta, rowTaxable, rowGst } from "./InvoiceDialog";
@@ -78,7 +78,11 @@ function InvDashboard() {
   const now = Date.now();
   const expiry = medicines.filter((m) => new Date(m.expiry).getTime() - now < 60 * 86400000).length;
   const outOfStock = allItems.filter((m) => (m.mainQuantity + m.pharmacyQuantity) === 0).length;
-  const thisMonth = purchases.filter((p) => new Date(p.createdAt).getMonth() === new Date().getMonth()).length;
+  const thisMonth = purchases.filter((p) => {
+    const d = new Date(p.createdAt);
+    const nowD = new Date();
+    return d.getMonth() === nowD.getMonth() && d.getFullYear() === nowD.getFullYear();
+  }).length;
   const totalMainStock = allItems.reduce((s, m) => s + m.mainQuantity, 0);
   const totalPharmacyStock = allItems.reduce((s, m) => s + m.pharmacyQuantity, 0);
   const stockValue = allItems.reduce((s, m) => s + (m.mainQuantity + m.pharmacyQuantity) * m.price, 0);
@@ -87,7 +91,7 @@ function InvDashboard() {
     { label: "Total Medicines", value: medicines.length, icon: Package, tone: "primary" },
     { label: "Service Materials", value: materials.length, icon: FlaskConical, tone: "primary" },
     { label: "Total Stock Value", value: `₹${stockValue.toFixed(0)}`, icon: ShoppingCart, tone: "success" },
-    { label: "Purchases This Month", value: thisMonth, icon: ShoppingCart, tone: "success" },
+    { label: "Purchases (All Time)", value: `${purchases.length} (${thisMonth} this mo)`, icon: ShoppingCart, tone: "success" },
     { label: "Low Stock Alerts", value: lowStock, icon: AlertTriangle, tone: "warning" },
     { label: "Expiry Alerts (60d)", value: expiry, icon: Calendar, tone: "warning" },
     { label: "Out of Stock", value: outOfStock, icon: Package, tone: "destructive" },
@@ -388,6 +392,7 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
   const [transferBatchId, setTransferBatchId] = useState<string>("auto");
   const [transferAmount, setTransferAmount] = useState<number>(0);
   const [transferring, setTransferring] = useState(false);
+  const [expandedName, setExpandedName] = useState<string | null>(null);
   
   const [editingItem, setEditingItem] = useState<any | null>(null);
 
@@ -402,14 +407,41 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
       map.get(r.name)!.push(r);
     }
     return Array.from(map.entries()).map(([name, batches]) => {
-      const sorted = [...batches].sort((a, b) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime());
+      // Sort batches so active stock comes first, then by earliest expiry
+      const sorted = [...batches].sort((a, b) => {
+        const aTotal = a.mainQuantity + a.pharmacyQuantity;
+        const bTotal = b.mainQuantity + b.pharmacyQuantity;
+        if (aTotal > 0 && bTotal === 0) return -1;
+        if (aTotal === 0 && bTotal > 0) return 1;
+        return new Date(a.expiry).getTime() - new Date(b.expiry).getTime();
+      });
+
+      // Active batches (with stock > 0 in either main or pharmacy)
+      const inStock = batches.filter(b => (b.mainQuantity + b.pharmacyQuantity) > 0);
+      const activeBatchesForPrice = inStock.length > 0 ? inStock : sorted;
+      const prices = Array.from(new Set(activeBatchesForPrice.map(b => b.price)));
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+
+      // Best representative price:
+      // 1) First batch with pharmacy dispensing stock
+      // 2) First batch with main warehouse stock
+      // 3) First sorted batch
+      const dispBatch = sorted.find(b => b.pharmacyQuantity > 0);
+      const mainBatch = sorted.find(b => b.mainQuantity > 0);
+      const repBatch = dispBatch || mainBatch || sorted[0];
+
       return {
-        id: sorted[0].id,
+        id: repBatch.id,
         name,
-        category: sorted[0].category,
-        minLevel: sorted[0].minLevel,
-        price: sorted[0].price,
-        supplier: sorted[0].supplier,
+        category: repBatch.category,
+        minLevel: repBatch.minLevel,
+        price: repBatch.price,
+        minPrice,
+        maxPrice,
+        multiplePrices: prices.length > 1,
+        activeBatchCount: inStock.length,
+        supplier: repBatch.supplier,
         batches: sorted,
         mainQuantity: sorted.reduce((s, b) => s + b.mainQuantity, 0),
         pharmacyQuantity: sorted.reduce((s, b) => s + b.pharmacyQuantity, 0),
@@ -425,6 +457,10 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
   const maxTransferAmount = transferBatchId === "auto" 
     ? activeBatches.reduce((s: number, b: any) => s + b.mainQuantity, 0)
     : (activeBatches.find((b: any) => b.id === transferBatchId)?.mainQuantity || 0);
+
+  const selectedTransferBatch = transferBatchId !== "auto"
+    ? activeBatches.find((b: any) => b.id === transferBatchId)
+    : null;
 
   const handleTransfer = async () => {
     if (!transferName || transferAmount <= 0) return;
@@ -476,49 +512,131 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
-              {["Name", "Category", "Batches", "Earliest Expiry", "Main Stock", "Pharmacy Stock", "Min", "Price", "Actions"].map((h) => (
-                <th key={h} className="text-left px-3 py-2.5 font-semibold text-muted-foreground text-xs uppercase tracking-wide">{h}</th>
+              {["", "Name", "Category", "Batches", "Earliest Expiry", "Main Stock", "Pharmacy Stock", "Min", "Selling Price", "Actions"].map((h, i) => (
+                <th key={i} className="text-left px-3 py-2.5 font-semibold text-muted-foreground text-xs uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {grouped.length === 0 && <tr><td colSpan={9} className="text-center py-6 text-muted-foreground">No items</td></tr>}
-            {grouped.map((g) => (
-              <tr key={g.name} className="border-t hover:bg-muted/30">
-                <td className="px-3 py-2.5 font-semibold flex items-center gap-2">
-                  {g.name}
-                  {(g.mainQuantity + g.pharmacyQuantity) === 0 && (
-                    <Badge variant="destructive" className="text-[10px] py-0 px-1 border-0 h-4 leading-none">Out of Stock</Badge>
+            {grouped.length === 0 && <tr><td colSpan={10} className="text-center py-6 text-muted-foreground">No items</td></tr>}
+            {grouped.map((g) => {
+              const isExpanded = expandedName === g.name;
+              return (
+                <>
+                  <tr key={g.name} className={`border-t hover:bg-muted/30 transition ${isExpanded ? "bg-muted/15" : ""}`}>
+                    <td className="pl-3 py-2.5 w-6">
+                      <button
+                        onClick={() => setExpandedName(isExpanded ? null : g.name)}
+                        className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition"
+                        title={isExpanded ? "Collapse batches" : "View batch details & prices"}
+                      >
+                        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2.5 font-semibold">
+                      <div className="flex items-center gap-2 cursor-pointer" onClick={() => setExpandedName(isExpanded ? null : g.name)}>
+                        <span>{g.name}</span>
+                        {(g.mainQuantity + g.pharmacyQuantity) === 0 && (
+                          <Badge variant="destructive" className="text-[10px] py-0 px-1 border-0 h-4 leading-none">Out of Stock</Badge>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5">{g.category}</td>
+                    <td className="px-3 py-2.5">
+                      <Badge
+                        variant="outline"
+                        className="font-mono cursor-pointer hover:bg-accent"
+                        onClick={() => setExpandedName(isExpanded ? null : g.name)}
+                      >
+                        {g.batches.length} Batch{g.batches.length !== 1 ? 'es' : ''}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2.5">{g.earliestExpiry ? new Date(g.earliestExpiry).toLocaleDateString() : "-"}</td>
+                    <td className="px-3 py-2.5 font-semibold text-blue-600">{g.mainQuantity}</td>
+                    <td className="px-3 py-2.5 font-semibold text-green-600">{g.pharmacyQuantity}</td>
+                    <td className="px-3 py-2.5 text-muted-foreground">{g.minLevel}</td>
+                    <td className="px-3 py-2.5">
+                      {g.multiplePrices ? (
+                        <div className="flex flex-col">
+                          <span className="font-bold text-foreground">₹{g.minPrice} – ₹{g.maxPrice}</span>
+                          <span className="text-[10px] text-muted-foreground font-medium">
+                            Active: ₹{g.price} ({g.batches.length} rates)
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="font-semibold text-foreground">₹{g.price}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 flex items-center justify-end gap-1 flex-wrap">
+                      {showTransfer ? (
+                        <Button variant="outline" size="sm" onClick={() => { setTransferName(g.name); setTransferBatchId("auto"); setTransferAmount(0); }}>
+                          <ArrowLeftRight className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Transfer</span>
+                        </Button>
+                      ) : (
+                        <Button variant="outline" size="sm" disabled title="Transfer disabled by Admin">
+                          <ArrowLeftRight className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Locked</span>
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" onClick={() => setEditingItem(g)}>
+                        <Edit className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Edit</span>
+                      </Button>
+                      <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => handleDelete(g)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="bg-muted/20 border-t">
+                      <td colSpan={10} className="p-3 pl-8">
+                        <div className="rounded-lg border bg-background p-3 shadow-xs space-y-2">
+                          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center justify-between">
+                            <span>Batch & Price Breakdown for <strong>{g.name}</strong></span>
+                            <span className="text-[11px] font-normal normal-case">Each batch retains its purchased MRP / selling price</span>
+                          </div>
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-left text-muted-foreground border-b pb-1">
+                                <th className="py-1">Batch</th>
+                                <th className="py-1">Expiry Date</th>
+                                <th className="py-1">MRP / Selling Price</th>
+                                <th className="py-1">Main Warehouse</th>
+                                <th className="py-1">Pharmacy Dispensing</th>
+                                <th className="py-1">Supplier</th>
+                                <th className="py-1">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {g.batches.map((b: any) => {
+                                const total = b.mainQuantity + b.pharmacyQuantity;
+                                return (
+                                  <tr key={b.id} className="border-b last:border-0 hover:bg-muted/40">
+                                    <td className="py-1.5 font-mono font-semibold">{b.batch}</td>
+                                    <td className="py-1.5 text-muted-foreground">{new Date(b.expiry).toLocaleDateString()}</td>
+                                    <td className="py-1.5 font-bold text-primary">₹{b.price.toFixed(2)}</td>
+                                    <td className="py-1.5 font-semibold text-blue-600">{b.mainQuantity}</td>
+                                    <td className="py-1.5 font-semibold text-green-600">{b.pharmacyQuantity}</td>
+                                    <td className="py-1.5 text-muted-foreground">{b.supplier || "-"}</td>
+                                    <td className="py-1.5">
+                                      {total === 0 ? (
+                                        <Badge variant="outline" className="text-[9px] text-muted-foreground">Depleted</Badge>
+                                      ) : b.pharmacyQuantity > 0 ? (
+                                        <Badge className="text-[9px] bg-green-600 text-white border-0">Dispensing Ready</Badge>
+                                      ) : (
+                                        <Badge variant="secondary" className="text-[9px]">In Warehouse</Badge>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
                   )}
-                </td>
-                <td className="px-3 py-2.5">{g.category}</td>
-                <td className="px-3 py-2.5">
-                  <Badge variant="outline" className="font-mono">{g.batches.length} Batch{g.batches.length !== 1 ? 'es' : ''}</Badge>
-                </td>
-                <td className="px-3 py-2.5">{g.earliestExpiry ? new Date(g.earliestExpiry).toLocaleDateString() : "-"}</td>
-                <td className="px-3 py-2.5 font-semibold text-blue-600">{g.mainQuantity}</td>
-                <td className="px-3 py-2.5 font-semibold text-green-600">{g.pharmacyQuantity}</td>
-                <td className="px-3 py-2.5 text-muted-foreground">{g.minLevel}</td>
-                <td className="px-3 py-2.5">₹{g.price}</td>
-                <td className="px-3 py-2.5 flex items-center justify-end gap-1 flex-wrap">
-                  {showTransfer ? (
-                    <Button variant="outline" size="sm" onClick={() => { setTransferName(g.name); setTransferBatchId("auto"); setTransferAmount(0); }}>
-                      <ArrowLeftRight className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Transfer</span>
-                    </Button>
-                  ) : (
-                    <Button variant="outline" size="sm" disabled title="Transfer disabled by Admin">
-                      <ArrowLeftRight className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Locked</span>
-                    </Button>
-                  )}
-                  <Button variant="outline" size="sm" onClick={() => setEditingItem(g)}>
-                    <Edit className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Edit</span>
-                  </Button>
-                  <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => handleDelete(g)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </td>
-              </tr>
-            ))}
+                </>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -543,11 +661,18 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
                 <option value="auto">Auto (FEFO - Earliest Expiry First) [{activeBatches.reduce((s: number, b: any) => s + b.mainQuantity, 0)} available]</option>
                 {activeBatches.map((b: any) => (
                   <option key={b.id} value={b.id}>
-                    Batch {b.batch} | Exp: {new Date(b.expiry).toLocaleDateString()} | Stock: {b.mainQuantity}
+                    Batch {b.batch} | Exp: {new Date(b.expiry).toLocaleDateString()} | MRP: ₹{b.price} | Stock: {b.mainQuantity}
                   </option>
                 ))}
               </select>
             </div>
+
+            {selectedTransferBatch && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-primary font-medium flex items-center justify-between">
+                <span>Selected Batch Selling Price: <strong>₹{selectedTransferBatch.price.toFixed(2)}</strong></span>
+                <span>Available to transfer: <strong>{selectedTransferBatch.mainQuantity} units</strong></span>
+              </div>
+            )}
 
             <div>
               <Label>Quantity to Transfer</Label>
@@ -885,30 +1010,83 @@ function PurchasesMgmt() {
 
 function MovementsView() {
   const { bills } = usePharmacy();
-  const movements = bills.slice(0, 20).flatMap((b) => b.items.map((it) => ({
-    id: b.id + "-" + it.medicineId, date: b.createdAt, type: b.status === "refunded" ? "IN" : "OUT",
-    item: it.name, qty: it.quantity, ref: b.id,
-  })));
+  const [q, setQ] = useState("");
+  const [limit, setLimit] = useState(100);
+
+  const allMovements = useMemo(() => {
+    return bills.flatMap((b) => b.items.map((it) => ({
+      id: b.id + "-" + (it.medicineId || it.name),
+      date: b.createdAt,
+      type: b.status === "refunded" ? "IN" : "OUT",
+      item: it.name,
+      qty: it.quantity,
+      ref: b.id,
+      patient: b.patientName,
+    })));
+  }, [bills]);
+
+  const filtered = useMemo(() => {
+    return allMovements.filter((m) =>
+      m.item.toLowerCase().includes(q.toLowerCase()) ||
+      m.ref.toLowerCase().includes(q.toLowerCase()) ||
+      (m.patient && m.patient.toLowerCase().includes(q.toLowerCase()))
+    );
+  }, [allMovements, q]);
+
+  const visibleMovements = filtered.slice(0, limit);
+
   return (
     <Card className="p-5">
-      <h2 className="text-lg font-semibold mb-3">Stock Movements</h2>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Stock Movements</h2>
+          <p className="text-xs text-muted-foreground">Historical inbound and outbound stock logs ({filtered.length} total movements)</p>
+        </div>
+        <div className="relative w-64">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search item, bill ID, patient..."
+            className="pl-9 h-9 text-sm"
+          />
+        </div>
+      </div>
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">
-          <thead className="bg-muted/50"><tr>{["Date", "Type", "Item", "Qty", "Reference"].map((h) => <th key={h} className="text-left px-3 py-2.5 font-semibold text-xs uppercase text-muted-foreground">{h}</th>)}</tr></thead>
+          <thead className="bg-muted/50">
+            <tr>
+              {["Date & Time", "Type", "Item", "Qty", "Reference / Patient"].map((h) => (
+                <th key={h} className="text-left px-3 py-2.5 font-semibold text-xs uppercase text-muted-foreground">{h}</th>
+              ))}
+            </tr>
+          </thead>
           <tbody>
-            {movements.length === 0 && <tr><td colSpan={5} className="text-center py-6 text-muted-foreground">No movements yet</td></tr>}
-            {movements.map((m) => (
+            {visibleMovements.length === 0 && (
+              <tr><td colSpan={5} className="text-center py-6 text-muted-foreground">No movements found</td></tr>
+            )}
+            {visibleMovements.map((m) => (
               <tr key={m.id} className="border-t">
-                <td className="px-3 py-2.5">{new Date(m.date).toLocaleString()}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{new Date(m.date).toLocaleString()}</td>
                 <td className="px-3 py-2.5"><Badge variant={m.type === "IN" ? "default" : "secondary"}>{m.type}</Badge></td>
                 <td className="px-3 py-2.5 font-semibold">{m.item}</td>
-                <td className="px-3 py-2.5">{m.qty}</td>
-                <td className="px-3 py-2.5 font-mono text-xs">{m.ref}</td>
+                <td className="px-3 py-2.5 font-mono">{m.qty}</td>
+                <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                  <span className="font-mono font-medium text-foreground">{m.ref}</span>
+                  {m.patient && <span> · {m.patient}</span>}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {filtered.length > limit && (
+        <div className="mt-3 flex justify-center">
+          <Button variant="outline" size="sm" onClick={() => setLimit((l) => l + 100)}>
+            Load More Movements (Showing {limit} of {filtered.length})
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }

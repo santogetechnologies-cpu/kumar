@@ -20,12 +20,13 @@ import {
 import { toast } from "sonner";
 
 /* ── Date range helpers ── */
-type RangeKey = "today" | "week" | "month" | "quarter" | "year" | "custom";
+type RangeKey = "all" | "today" | "week" | "month" | "quarter" | "year" | "custom";
 
 function startOf(key: RangeKey, customStart?: string, customEnd?: string): { from: Date; to: Date } {
   const now = new Date();
   const to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   switch (key) {
+    case "all": return { from: new Date(0), to: new Date(8640000000000000) };
     case "today": return { from: new Date(now.getFullYear(), now.getMonth(), now.getDate()), to };
     case "week": {
       const d = new Date(now); d.setDate(d.getDate() - 6);
@@ -43,6 +44,8 @@ function startOf(key: RangeKey, customStart?: string, customEnd?: string): { fro
 }
 
 function fmt(d: Date) {
+  if (d.getTime() === 0) return "Beginning";
+  if (d.getTime() > 2000000000000) return "Present";
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" });
 }
 
@@ -64,7 +67,7 @@ export function FinanceTab() {
   const { role } = useAuth();
   const isAdmin = role === "admin";
 
-  const [range, setRange] = useState<RangeKey>("month");
+  const [range, setRange] = useState<RangeKey>("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [showExpenseDialog, setShowExpenseDialog] = useState(false);
@@ -186,9 +189,10 @@ export function FinanceTab() {
   };
 
   const RANGES: { key: RangeKey; label: string }[] = [
-    { key: "today", label: "Today" },
-    { key: "week", label: "Last 7 Days" },
+    { key: "all", label: "All Time" },
     { key: "month", label: "This Month" },
+    { key: "week", label: "Last 7 Days" },
+    { key: "today", label: "Today" },
     { key: "quarter", label: "This Quarter" },
     { key: "year", label: "This Year" },
     { key: "custom", label: "Custom" },
@@ -203,7 +207,7 @@ export function FinanceTab() {
             <Wallet className="h-6 w-6 text-primary" /> {isAdmin ? "Finance & P&L Report" : "Pharmacy Expense Entry"}
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {isAdmin ? `${fmt(from)} — ${fmt(to)}` : "Record pharmacy internal use expenses"}
+            {range === "all" ? "Showing all-time records" : `${fmt(from)} — ${fmt(to)}`}
           </p>
         </div>
         <Button onClick={() => setShowExpenseDialog(true)} className="gap-2">
@@ -211,27 +215,25 @@ export function FinanceTab() {
         </Button>
       </div>
 
-      {/* Date range pills — admin only */}
-      {isAdmin && (
-        <div className="flex flex-wrap gap-2">
-          {RANGES.map(r => (
-            <button
-              key={r.key}
-              onClick={() => setRange(r.key)}
-              className={`px-4 py-1.5 rounded-full text-sm font-medium border transition ${range === r.key ? "bg-primary text-primary-foreground border-primary shadow-sm" : "hover:bg-accent border-transparent"}`}
-            >
-              {r.label}
-            </button>
-          ))}
-          {range === "custom" && (
-            <div className="flex items-center gap-2 ml-1 flex-wrap">
-              <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="h-8 w-36 text-sm" />
-              <span className="text-muted-foreground text-sm">to</span>
-              <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="h-8 w-36 text-sm" />
-            </div>
-          )}
-        </div>
-      )}
+      {/* Date range pills — visible to all users */}
+      <div className="flex flex-wrap gap-2">
+        {RANGES.map(r => (
+          <button
+            key={r.key}
+            onClick={() => setRange(r.key)}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium border transition ${range === r.key ? "bg-primary text-primary-foreground border-primary shadow-sm" : "hover:bg-accent border-transparent"}`}
+          >
+            {r.label}
+          </button>
+        ))}
+        {range === "custom" && (
+          <div className="flex items-center gap-2 ml-1 flex-wrap">
+            <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="h-8 w-36 text-sm" />
+            <span className="text-muted-foreground text-sm">to</span>
+            <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="h-8 w-36 text-sm" />
+          </div>
+        )}
+      </div>
 
       {/* ── KPI Cards — admin only ── */}
       {isAdmin && (
