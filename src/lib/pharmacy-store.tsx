@@ -234,7 +234,7 @@ interface PharmacyContextType {
     items: Array<{ medicineId: string; name: string; quantity: number; price: number; batchId?: string }>;
     total: number; discountPct: number; status: string; paymentMethod: string;
   }) => Promise<Bill>;
-  refundItems: (billId: string, refunds: Array<{ medicineId: string | null; quantity: number; name: string }>) => Promise<void>;
+  refundItems: (billId: string, refunds: Array<{ medicineId: string | null; quantity?: number; qty?: number; name?: string }>) => Promise<void>;
   deleteBill: (id: string) => Promise<void>;
 
   // Purchases
@@ -548,11 +548,14 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
 
   const refundItems = useCallback(async (
     billId: string,
-    refunds: Array<{ medicineId: string | null; quantity: number; name: string }>
+    refunds: Array<{ medicineId: string | null; quantity?: number; qty?: number; name?: string }>
   ) => {
     // Update each bill_item refunded_quantity
     for (const ref of refunds) {
       if (!ref.medicineId) continue;
+      const refQty = Number(ref.quantity ?? (ref as any).qty ?? 1);
+      if (isNaN(refQty) || refQty <= 0) continue;
+
       const { data: items } = await supabase
         .from("bill_items")
         .select("id, refunded_quantity, quantity")
@@ -560,7 +563,8 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         .eq("medicine_id", ref.medicineId);
       const item = items?.[0];
       if (!item) continue;
-      const newRefunded = Math.min(item.quantity, (item.refunded_quantity ?? 0) + ref.quantity);
+      const currentRefunded = Number(item.refunded_quantity) || 0;
+      const newRefunded = Math.min(item.quantity, currentRefunded + refQty);
       await supabase
         .from("bill_items")
         .update({ refunded_quantity: newRefunded })
@@ -574,7 +578,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       if (med) {
         await supabase
           .from("medicines")
-          .update({ pharmacy_quantity: med.pharmacy_quantity + ref.quantity })
+          .update({ pharmacy_quantity: (Number(med.pharmacy_quantity) || 0) + refQty })
           .eq("id", ref.medicineId);
       } else {
         const { data: mat } = await supabase
@@ -585,7 +589,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         if (mat) {
           await supabase
             .from("materials")
-            .update({ pharmacy_quantity: mat.pharmacy_quantity + ref.quantity })
+            .update({ pharmacy_quantity: (Number(mat.pharmacy_quantity) || 0) + refQty })
             .eq("id", ref.medicineId);
         }
       }
