@@ -278,7 +278,9 @@ interface PharmacyContextType {
     total: number; discountPct: number; status: string; paymentMethod: string;
   }) => Promise<Bill>;
   refundItems: (billId: string, refunds: Array<{ medicineId: string | null; quantity?: number; qty?: number; name?: string }>) => Promise<void>;
-  deleteBill: (id: string) => Promise<void>;
+  /** Deletes a bill. With restoreStock, puts un-refunded quantities back into pharmacy stock.
+   *  Returns names of items whose stock could not be restored (e.g. batch was removed). */
+  deleteBill: (id: string, restoreStock?: boolean) => Promise<{ skipped: string[] }>;
 
   // Purchases
   addPurchase: (data: Omit<Purchase, "id" | "createdAt">) => Promise<void>;
@@ -613,10 +615,41 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     await Promise.all([loadBills(), loadMedicines(), loadMaterials()]);
   }, []);
 
-  const deleteBill = useCallback(async (id: string) => {
+  const deleteBill = useCallback(async (id: string, restoreStock = false): Promise<{ skipped: string[] }> => {
+    // Read the bill's items fresh from the DB BEFORE deleting (items cascade-delete with the bill)
+    let items: any[] = [];
+    if (restoreStock) {
+      const { data, error: itemErr } = await supabase
+        .from("bill_items")
+        .select("medicine_id, name, quantity, refunded_quantity")
+        .eq("bill_id", id);
+      if (itemErr) throw itemErr;
+      items = data ?? [];
+    }
+
+    // Delete first: if this fails nothing has changed, so stock is never restored twice
     const { error } = await supabase.from("bills").delete().eq("id", id);
     if (error) throw error;
     setBills((prev) => prev.filter((b) => b.id !== id));
+
+    // Return only what is still "out": refunded units were already put back by the refund
+    const skipped: string[] = [];
+    if (restoreStock) {
+      for (const it of items) {
+        const qty = (Number(it.quantity) || 0) - (Number(it.refunded_quantity) || 0);
+        if (qty <= 0) continue;
+        if (!it.medicine_id) { skipped.push(it.name); continue; }
+        const table = await tableForItem(it.medicine_id);
+        if (!table) { skipped.push(it.name); continue; }
+        try {
+          await adjustStock(table, it.medicine_id, 0, qty);
+        } catch {
+          skipped.push(it.name);
+        }
+      }
+      await Promise.all([loadMedicines(), loadMaterials()]);
+    }
+    return { skipped };
   }, []);
 
   // ── PURCHASES ────────────────────────────────

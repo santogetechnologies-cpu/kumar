@@ -67,8 +67,11 @@ export function PaymentsTab() {
     if (!billToDelete) return;
     setDeleting(true);
     try {
-      await deleteBill(billToDelete.id, restoreStock);
+      const { skipped } = await deleteBill(billToDelete.id, restoreStock);
       toast.success(`Bill ${billToDelete.id} deleted successfully${restoreStock ? " and stock restored" : ""}`);
+      if (skipped.length) {
+        toast.warning(`Stock could not be restored for: ${skipped.join(", ")} (batch no longer exists). Adjust manually.`);
+      }
       setBillToDelete(null);
     } catch (e: any) {
       toast.error("Failed to delete bill: " + e.message);
