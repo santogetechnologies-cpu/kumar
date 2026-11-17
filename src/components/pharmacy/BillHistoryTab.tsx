@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { usePharmacy } from "@/lib/pharmacy-store";
+import { usePharmacy, getBillNetTotal, getBillOriginalTotal } from "@/lib/pharmacy-store";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,7 +61,12 @@ export function BillHistoryTab() {
                     <div className="font-semibold">{b.patientName}</div>
                     <div className="text-xs text-muted-foreground">{b.patientId}</div>
                   </td>
-                  <td className="px-3 py-2.5 font-semibold">₹{b.total.toFixed(2)}</td>
+                  <td className="px-3 py-2.5 font-semibold">
+                    ₹{getBillNetTotal(b).toFixed(2)}
+                    {getBillNetTotal(b) !== getBillOriginalTotal(b) && (
+                      <div className="text-[10px] text-muted-foreground line-through font-normal">₹{getBillOriginalTotal(b).toFixed(2)}</div>
+                    )}
+                  </td>
                   <td className="px-3 py-2.5">{b.discountPct}%</td>
                   <td className="px-3 py-2.5">{b.paymentMethod}</td>
                   <td className="px-3 py-2.5">

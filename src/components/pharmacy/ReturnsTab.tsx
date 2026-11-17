@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { usePharmacy, type Bill } from "@/lib/pharmacy-store";
+import { usePharmacy, getBillNetTotal, getBillOriginalTotal, type Bill } from "@/lib/pharmacy-store";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -293,7 +293,10 @@ export function ReturnsTab() {
               >
                 {bill.status.replace("_", " ")}
               </Badge>
-              <div className="text-lg font-bold mt-1">₹{bill.total.toFixed(2)}</div>
+              <div className="text-lg font-bold mt-1">₹{getBillOriginalTotal(bill).toFixed(2)}</div>
+              {getBillNetTotal(bill) !== getBillOriginalTotal(bill) && (
+                <div className="text-xs font-semibold text-success">Net after refunds: ₹{getBillNetTotal(bill).toFixed(2)}</div>
+              )}
               {bill.discountPct > 0 && (
                 <div className="text-xs text-muted-foreground">({bill.discountPct}% bill discount applied)</div>
               )}
@@ -524,7 +527,7 @@ export function ReturnsTab() {
                     </div>
 
                     <div className="text-right shrink-0 flex flex-col items-end">
-                      <div className="font-bold text-base text-foreground">₹{b.total.toFixed(2)}</div>
+                      <div className="font-bold text-base text-foreground">₹{getBillNetTotal(b).toFixed(2)}</div>
                       <div className="text-[11px] text-muted-foreground mt-0.5">
                         {itemsCount} units {refundedCount > 0 && <span className="text-brand-red">({refundedCount} returned)</span>}
                       </div>

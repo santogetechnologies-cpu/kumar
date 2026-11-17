@@ -80,6 +80,9 @@ export interface Purchase {
   mrp: number;
   batch?: string;
   expiry?: string;
+  /** Inventory row this purchase was received into (set on receive). */
+  targetId?: string;
+  targetTable?: "medicines" | "materials";
   createdAt: string;
 }
 
@@ -117,10 +120,25 @@ export function getEffectiveMinLevel(
 // UTILITY: Net total of a bill
 // ─────────────────────────────────────────────
 
+export const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/** Amount actually kept after discount AND refunds. Use this for all money totals. */
 export function getBillNetTotal(bill: Bill): number {
-  const gross = bill.items.reduce((s, i) => s + i.price * i.quantity, 0);
-  return gross - (gross * (bill.discountPct ?? 0)) / 100;
+  const gross = bill.items.reduce(
+    (s, i) => s + i.price * Math.max(0, i.quantity - (i.refundedQuantity || 0)),
+    0
+  );
+  return round2(gross * (1 - (bill.discountPct ?? 0) / 100));
 }
+
+/** Original amount charged at billing time (after discount, before refunds). */
+export function getBillOriginalTotal(bill: Bill): number {
+  const gross = bill.items.reduce((s, i) => s + i.price * i.quantity, 0);
+  return round2(gross * (1 - (bill.discountPct ?? 0) / 100));
+}
+
+/** Normalise batch / name strings for matching ("  b12 " === "B12"). */
+export const normKey = (s?: string | null) => (s ?? "").trim().toUpperCase();
 
 // ─────────────────────────────────────────────
 // DB ROW MAPPERS
@@ -194,8 +212,33 @@ function mapPurchase(row: any): Purchase {
     mrp: parseFloat(row.mrp ?? 0),
     batch: row.batch ?? undefined,
     expiry: row.expiry ?? undefined,
+    targetId: row.target_id ?? undefined,
+    targetTable: row.target_table ?? undefined,
     createdAt: row.created_at,
   };
+}
+
+/** Which inventory table an item id belongs to (looked up fresh from the DB). */
+async function tableForItem(id: string): Promise<"medicines" | "materials" | null> {
+  const { data: med } = await supabase.from("medicines").select("id").eq("id", id).maybeSingle();
+  if (med) return "medicines";
+  const { data: mat } = await supabase.from("materials").select("id").eq("id", id).maybeSingle();
+  if (mat) return "materials";
+  return null;
+}
+
+/** Atomic +/- stock change (main and/or pharmacy). Throws if stock would go negative. */
+export async function adjustStock(
+  table: "medicines" | "materials",
+  id: string,
+  mainDelta: number,
+  pharmacyDelta: number
+): Promise<void> {
+  if (!mainDelta && !pharmacyDelta) return;
+  const { error } = await supabase.rpc("adjust_stock", {
+    p_table: table, p_id: id, p_main: mainDelta, p_pharmacy: pharmacyDelta,
+  });
+  if (error) throw error;
 }
 
 // ─────────────────────────────────────────────
@@ -464,60 +507,28 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     items: Array<{ medicineId: string; name: string; quantity: number; price: number; batchId?: string }>;
     total: number; discountPct: number; status: string; paymentMethod: string;
   }): Promise<Bill> => {
-    const billId = "BILL-" + Date.now();
-    const { error: billErr } = await supabase.from("bills").insert({
-      id: billId,
-      patient_name: data.patientName,
-      patient_id: data.patientId,
-      doctor_id: data.doctorId ?? null,
-      doctor_name: data.doctorName,
-      total: data.total,
-      discount_pct: data.discountPct,
-      status: data.status,
-      payment_method: data.paymentMethod,
+    // Bill + items + stock deduction happen in ONE database transaction (create_bill RPC).
+    // If any batch no longer has enough pharmacy stock, nothing is saved.
+    const { data: billId, error: billErr } = await supabase.rpc("create_bill", {
+      p_bill: {
+        patient_name: data.patientName,
+        patient_id: data.patientId,
+        doctor_id: data.doctorId ?? "",
+        doctor_name: data.doctorName,
+        total: round2(data.total),
+        discount_pct: data.discountPct,
+        status: data.status,
+        payment_method: data.paymentMethod,
+      },
+      p_items: data.items.map((it) => ({
+        medicine_id: it.medicineId,
+        name: it.name,
+        quantity: it.quantity,
+        price: it.price,
+      })),
     });
     if (billErr) throw billErr;
-
-    // Insert bill items
-    const itemInserts = data.items.map((it) => ({
-      bill_id: billId,
-      medicine_id: it.medicineId,
-      name: it.name,
-      quantity: it.quantity,
-      price: it.price,
-      batch_id: it.batchId ?? null,
-    }));
-    const { error: itemErr } = await supabase.from("bill_items").insert(itemInserts);
-    if (itemErr) throw itemErr;
-
-    // Deduct stock from medicine or material rows (FIFO — handled by caller's breakdown)
-    for (const it of data.items) {
-      if (it.medicineId) {
-        const { data: med } = await supabase
-          .from("medicines")
-          .select("pharmacy_quantity")
-          .eq("id", it.medicineId)
-          .maybeSingle();
-        if (med) {
-          await supabase
-            .from("medicines")
-            .update({ pharmacy_quantity: Math.max(0, med.pharmacy_quantity - it.quantity) })
-            .eq("id", it.medicineId);
-        } else {
-          const { data: mat } = await supabase
-            .from("materials")
-            .select("pharmacy_quantity")
-            .eq("id", it.medicineId)
-            .maybeSingle();
-          if (mat) {
-            await supabase
-              .from("materials")
-              .update({ pharmacy_quantity: Math.max(0, mat.pharmacy_quantity - it.quantity) })
-              .eq("id", it.medicineId);
-          }
-        }
-      }
-    }
+    if (!billId) throw new Error("Bill could not be created");
 
     const newBill: Bill = {
       id: billId,
@@ -531,9 +542,9 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
         quantity: it.quantity,
         price: it.price,
         refundedQuantity: 0,
-        batchId: it.batchId,
+        batchId: it.medicineId,
       })),
-      total: data.total,
+      total: round2(data.total),
       discountPct: data.discountPct,
       status: data.status as Bill["status"],
       paymentMethod: data.paymentMethod,
@@ -542,7 +553,7 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
     };
 
     setBills((prev) => [newBill, ...prev]);
-    await Promise.all([loadMedicines(), loadMaterials()]); // refresh stock
+    await Promise.all([loadBills(), loadMedicines(), loadMaterials()]); // refresh stock
     return newBill;
   }, []);
 
@@ -564,34 +575,27 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       const item = items?.[0];
       if (!item) continue;
       const currentRefunded = Number(item.refunded_quantity) || 0;
-      const newRefunded = Math.min(item.quantity, currentRefunded + refQty);
-      await supabase
+      // Never refund (or return to stock) more than was actually sold
+      const actualQty = Math.min(refQty, item.quantity - currentRefunded);
+      if (actualQty <= 0) continue;
+      // Guard against a double refund: only update if nobody changed it since we read it
+      let q = supabase
         .from("bill_items")
-        .update({ refunded_quantity: newRefunded })
+        .update({ refunded_quantity: currentRefunded + actualQty })
         .eq("id", item.id);
-      // Return to pharmacy stock (check medicines first, then materials)
-      const { data: med } = await supabase
-        .from("medicines")
-        .select("pharmacy_quantity")
-        .eq("id", ref.medicineId)
-        .maybeSingle();
-      if (med) {
-        await supabase
-          .from("medicines")
-          .update({ pharmacy_quantity: (Number(med.pharmacy_quantity) || 0) + refQty })
-          .eq("id", ref.medicineId);
-      } else {
-        const { data: mat } = await supabase
-          .from("materials")
-          .select("pharmacy_quantity")
-          .eq("id", ref.medicineId)
-          .maybeSingle();
-        if (mat) {
-          await supabase
-            .from("materials")
-            .update({ pharmacy_quantity: (Number(mat.pharmacy_quantity) || 0) + refQty })
-            .eq("id", ref.medicineId);
-        }
+      q = item.refunded_quantity == null ? q.is("refunded_quantity", null) : q.eq("refunded_quantity", item.refunded_quantity);
+      const { data: updated, error: upErr } = await q.select("id");
+      if (upErr) throw upErr;
+      if (!updated || updated.length === 0) {
+        throw new Error("This item was just refunded from another screen. Please reload and try again.");
+      }
+      // Return to pharmacy stock atomically
+      const table = await tableForItem(ref.medicineId);
+      if (table) {
+        const { error: stErr } = await supabase.rpc("adjust_stock", {
+          p_table: table, p_id: ref.medicineId, p_main: 0, p_pharmacy: actualQty,
+        });
+        if (stErr) throw stErr;
       }
     }
 
@@ -646,160 +650,98 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updatePurchaseStatus = useCallback(async (id: string, status: "pending" | "received" | "cancelled") => {
-    const { error } = await supabase.from("purchases").update({ status }).eq("id", id);
-    if (error) throw error;
-
-    // If marking as received, add stock to matching medicine/material
-    if (status === "received") {
-      const purchase = purchases.find((p) => p.id === id);
-      if (purchase) {
-        const totalQty = purchase.quantity + (purchase.free_quantity ?? 0);
-        // Try medicines first, then materials
-        const { data: meds } = await supabase
-          .from("medicines")
-          .select("*")
-          .eq("name", purchase.item)
-          .eq("archived", false);
-        
-        if (meds && meds.length > 0) {
-          const matchBatch = meds.find((m: any) => purchase.batch && m.batch === purchase.batch);
-          if (matchBatch) {
-            const updatePatch: Record<string, any> = {
-              main_quantity: matchBatch.main_quantity + totalQty,
-            };
-            if (purchase.mrp && purchase.mrp > 0) {
-              updatePatch.price = purchase.mrp;
-            }
-            await supabase
-              .from("medicines")
-              .update(updatePatch)
-              .eq("id", matchBatch.id);
-          } else {
-            const template = meds[0];
-            await supabase.from("medicines").insert({
-              name: template.name,
-              category: template.category,
-              batch: purchase.batch || "NEW-" + Date.now().toString().slice(-4),
-              expiry: purchase.expiry || new Date(Date.now() + 31536000000).toISOString().split('T')[0],
-              main_quantity: totalQty,
-              pharmacy_quantity: 0,
-              min_level: template.min_level,
-              custom_min_level: template.custom_min_level,
-              price: purchase.mrp || template.price,
-              supplier: purchase.supplier || template.supplier,
-            });
-          }
-        } else {
-          const { data: mats } = await supabase
-            .from("materials")
-            .select("*")
-            .eq("name", purchase.item)
-            .eq("archived", false);
-            
-          if (mats && mats.length > 0) {
-            const matchBatch = mats.find((m: any) => purchase.batch && m.batch === purchase.batch);
-            if (matchBatch) {
-              const updatePatch: Record<string, any> = {
-                main_quantity: matchBatch.main_quantity + totalQty,
-              };
-              if (purchase.mrp && purchase.mrp > 0) {
-                updatePatch.price = purchase.mrp;
-              }
-              await supabase
-                .from("materials")
-                .update(updatePatch)
-                .eq("id", matchBatch.id);
-            } else {
-              const template = mats[0];
-              await supabase.from("materials").insert({
-                name: template.name,
-                category: template.category,
-                batch: purchase.batch || "NEW-" + Date.now().toString().slice(-4),
-                expiry: purchase.expiry || new Date(Date.now() + 31536000000).toISOString().split('T')[0],
-                main_quantity: totalQty,
-                pharmacy_quantity: 0,
-                min_level: template.min_level,
-                custom_min_level: template.custom_min_level,
-                price: purchase.mrp || template.price,
-                supplier: purchase.supplier || template.supplier,
-              });
-            }
-          } else {
-            // Item does not exist in inventory yet — auto-create as new medicine
-            await supabase.from("medicines").insert({
-              name: purchase.item,
-              category: "Tablet",
-              batch: purchase.batch || "NEW-" + Date.now().toString().slice(-4),
-              expiry: purchase.expiry || new Date(Date.now() + 31536000000).toISOString().split('T')[0],
-              main_quantity: totalQty,
-              pharmacy_quantity: 0,
-              min_level: 10,
-              custom_min_level: null,
-              price: purchase.mrp || purchase.cost || 0,
-              supplier: purchase.supplier || "",
-            });
-          }
-        }
-        await loadMedicines();
-        await loadMaterials();
-      }
+    if (status !== "received") {
+      // Only pending orders can be cancelled / reset; never touches stock
+      const { error } = await supabase.from("purchases").update({ status }).eq("id", id).eq("status", "pending");
+      if (error) throw error;
+      await loadPurchases();
+      return;
     }
 
-    await loadPurchases();
-  }, [purchases]);
+    // 1. Always read the purchase fresh from the DB (React state can be stale)
+    const { data: row, error: pErr } = await supabase.from("purchases").select("*").eq("id", id).maybeSingle();
+    if (pErr) throw pErr;
+    if (!row) throw new Error("Purchase not found");
+    const purchase = mapPurchase(row);
+    if (purchase.status !== "pending") throw new Error("This purchase is already " + purchase.status);
+
+    // 2. Validate — never invent a batch, expiry or price
+    const batch = (purchase.batch ?? "").trim();
+    const expiry = (purchase.expiry ?? "").trim();
+    if (!(purchase.mrp > 0) || !batch || !expiry) {
+      throw new Error("Purchase is missing MRP / Batch / Expiry — delete it and re-enter with all details before receiving");
+    }
+
+    // 3. Find the inventory row (same name, same batch ignoring case/spaces)
+    const itemName = purchase.item.trim();
+    let table: "medicines" | "materials" = "medicines";
+    let { data: rows } = await supabase.from("medicines").select("*").ilike("name", itemName).eq("archived", false);
+    if (!rows || rows.length === 0) {
+      const { data: mats } = await supabase.from("materials").select("*").ilike("name", itemName).eq("archived", false);
+      if (mats && mats.length > 0) { rows = mats; table = "materials"; }
+    }
+
+    let targetId: string;
+    const match = (rows ?? []).find((r: any) => normKey(r.batch) === normKey(batch));
+    if (match) {
+      // Same batch → same MRP; refresh price & expiry from the invoice
+      const { error } = await supabase.from(table).update({ price: purchase.mrp, expiry }).eq("id", match.id);
+      if (error) throw error;
+      targetId = match.id;
+    } else {
+      // New batch row (stock is added below by receive_purchase)
+      const template: any = rows && rows.length > 0 ? rows[0] : null;
+      const { data: inserted, error } = await supabase.from(table).insert({
+        name: template ? template.name : itemName,
+        category: template ? template.category : "Tablet",
+        batch,
+        expiry,
+        main_quantity: 0,
+        pharmacy_quantity: 0,
+        min_level: template ? template.min_level : 10,
+        custom_min_level: template ? template.custom_min_level : null,
+        price: purchase.mrp,
+        supplier: purchase.supplier || template?.supplier || "",
+      }).select("id").single();
+      if (error) throw error;
+      targetId = inserted.id;
+    }
+
+    // 4. Flip status + add stock atomically, exactly once
+    const { error: rErr } = await supabase.rpc("receive_purchase", {
+      p_purchase_id: id, p_target_table: table, p_target_id: targetId,
+    });
+    if (rErr) throw rErr;
+
+    await Promise.all([loadPurchases(), loadMedicines(), loadMaterials()]);
+  }, []);
 
   const deletePurchase = useCallback(async (id: string, revertStock: boolean) => {
     if (revertStock) {
-      const purchase = purchases.find((p) => p.id === id);
+      const { data: row } = await supabase.from("purchases").select("*").eq("id", id).maybeSingle();
+      const purchase = row ? mapPurchase(row) : null;
       if (purchase && purchase.status === "received") {
-        const totalQty = purchase.quantity + (purchase.free_quantity ?? 0);
-        const { data: meds } = await supabase
-          .from("medicines")
-          .select("id, main_quantity")
-          .eq("name", purchase.item)
-          .eq("archived", false);
-        if (meds && meds.length > 0) {
-          await supabase
-            .from("medicines")
-            .update({ main_quantity: Math.max(0, meds[0].main_quantity - totalQty) })
-            .eq("id", meds[0].id);
-          await loadMedicines();
-        } else {
-          const { data: mats } = await supabase
-            .from("materials")
-            .select("id, main_quantity")
-            .eq("name", purchase.item)
-            .eq("archived", false);
-          if (mats && mats.length > 0) {
-            await supabase
-              .from("materials")
-              .update({ main_quantity: Math.max(0, mats[0].main_quantity - totalQty) })
-              .eq("id", mats[0].id);
-            await loadMaterials();
-          }
+        if (!purchase.targetId || !purchase.targetTable) {
+          throw new Error("This older purchase has no linked batch, so stock can't be reverted automatically. Untick 'revert stock' and adjust the batch stock manually.");
         }
+        const totalQty = purchase.quantity + (purchase.free_quantity ?? 0);
+        await adjustStock(purchase.targetTable, purchase.targetId, -totalQty, 0);
+        await Promise.all([loadMedicines(), loadMaterials()]);
       }
     }
     const { error } = await supabase.from("purchases").delete().eq("id", id);
     if (error) throw error;
     setPurchases((prev) => prev.filter((p) => p.id !== id));
-  }, [purchases]);
+  }, []);
 
   // ── STOCK TRANSFER ───────────────────────────
   const transferStock = useCallback(async (type: "medicine" | "material", id: string, qty: number) => {
     const table = type === "medicine" ? "medicines" : "materials";
-    const { data: row } = await supabase
-      .from(table)
-      .select("main_quantity, pharmacy_quantity")
-      .eq("id", id)
-      .single();
-    if (!row) throw new Error("Item not found");
-    if (row.main_quantity < qty) throw new Error("Not enough main stock");
-    const { error } = await supabase.from(table).update({
-      main_quantity: row.main_quantity - qty,
-      pharmacy_quantity: row.pharmacy_quantity + qty,
-    }).eq("id", id);
-    if (error) throw error;
+    try {
+      await adjustStock(table, id, -qty, qty);
+    } catch (e: any) {
+      throw new Error(e?.message?.includes("Insufficient") ? "Not enough main stock" : e?.message ?? "Transfer failed");
+    }
     if (type === "medicine") await loadMedicines();
     else await loadMaterials();
   }, []);

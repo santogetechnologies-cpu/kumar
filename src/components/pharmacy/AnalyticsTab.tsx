@@ -68,7 +68,7 @@ function buildAnswer(
     if (has(t, "today", "today's")) {
       const today = new Date().toDateString();
       const todayBills = active.filter((b: any) => new Date(b.createdAt).toDateString() === today);
-      const todayRev = todayBills.reduce((s: number, b: any) => s + b.total, 0);
+      const todayRev = todayBills.reduce((s: number, b: any) => s + getBillNetTotal(b), 0);
       return `📅 **Today's Revenue**\n\n₹${todayRev.toFixed(2)} from ${todayBills.length} transaction${todayBills.length !== 1 ? "s" : ""} today.\n\nAll-time total: ₹${totalRevenue.toFixed(2)} from ${totalTx} transactions.`;
     }
     if (has(t, "month", "this month", "monthly")) {
@@ -77,7 +77,7 @@ function buildAnswer(
         const d = new Date(b.createdAt);
         return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
       });
-      const monthRev = thisMonth.reduce((s: number, b: any) => s + b.total, 0);
+      const monthRev = thisMonth.reduce((s: number, b: any) => s + getBillNetTotal(b), 0);
       return `🗓️ **This Month's Revenue**\n\n₹${monthRev.toFixed(2)} from ${thisMonth.length} transactions in ${now.toLocaleString("default", { month: "long" })} ${now.getFullYear()}.\n\nAll-time total: ₹${totalRevenue.toFixed(2)}`;
     }
     return `💰 **Total Revenue**\n\n₹${totalRevenue.toFixed(2)} earned from ${totalTx} transactions with ${totalQty} units dispensed.\n\nAverage bill value: ₹${totalTx > 0 ? (totalRevenue / totalTx).toFixed(2) : "0.00"}`;
@@ -233,7 +233,7 @@ function buildAnswer(
   if (has(t, "payment", "upi", "cash", "card", "mode", "how paid")) {
     const methods: Record<string, number> = {};
     active.forEach((b: any) => {
-      methods[b.paymentMethod] = (methods[b.paymentMethod] || 0) + b.total;
+      methods[b.paymentMethod] = (methods[b.paymentMethod] || 0) + getBillNetTotal(b);
     });
     const list = Object.entries(methods).sort((a, b) => b[1] - a[1]).map(([k, v]) => `• ${k}: ₹${v.toFixed(2)}`).join("\n");
     return `💳 **Payment Method Breakdown**\n\n${list || "No payment data yet."}`;
@@ -243,7 +243,7 @@ function buildAnswer(
   if (has(t, "summary", "overview", "dashboard", "report", "stats", "statistics", "overall", "snapshot")) {
     const today = new Date().toDateString();
     const todayBills = active.filter((b: any) => new Date(b.createdAt).toDateString() === today);
-    const todayRev = todayBills.reduce((s: number, b: any) => s + b.total, 0);
+    const todayRev = todayBills.reduce((s: number, b: any) => s + getBillNetTotal(b), 0);
     const allItems = [...medicines, ...materials];
     const lowCount = allItems.filter((m: any) => (m.mainQuantity + m.pharmacyQuantity) <= m.minLevel).length;
     const now = Date.now();
@@ -343,7 +343,7 @@ export function AnalyticsTab() {
       const m = b.paymentMethod || "Unknown";
       if (!map[m]) map[m] = { count: 0, total: 0 };
       map[m].count++;
-      map[m].total += b.total;
+      map[m].total += getBillNetTotal(b);
     });
     return Object.entries(map).map(([name, v]) => ({ name, ...v, total: +v.total.toFixed(2) }));
   }, [active]);

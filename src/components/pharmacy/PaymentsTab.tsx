@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { usePharmacy, getBillNetTotal } from "@/lib/pharmacy-store";
+import { usePharmacy, getBillNetTotal, getBillOriginalTotal } from "@/lib/pharmacy-store";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -36,7 +36,7 @@ export function PaymentsTab() {
   // Net total accounting for refunds
   const total = bills.reduce((s, b) => s + getBillNetTotal(b), 0);
   const paid = bills.filter((b) => b.status === "paid" || b.status === "partially_refunded").reduce((s, b) => s + getBillNetTotal(b), 0);
-  const pending = bills.filter((b) => b.status === "pending").reduce((s, b) => s + b.total, 0);
+  const pending = bills.filter((b) => b.status === "pending").reduce((s, b) => s + getBillNetTotal(b), 0);
 
   const exportCsv = () => {
     const rows = [
@@ -47,7 +47,7 @@ export function PaymentsTab() {
         b.patientName,
         b.patientId || "",
         b.doctorName || "",
-        b.total.toString(),
+        getBillOriginalTotal(b).toString(),
         getBillNetTotal(b).toString(),
         (b.discountPct || 0).toString(),
         b.status,
@@ -165,7 +165,7 @@ export function PaymentsTab() {
                   </td>
                   <td className="px-3 py-2.5">
                     <div className={`font-semibold ${isFullyRefunded ? "line-through text-muted-foreground" : ""}`}>
-                      ₹{b.total.toFixed(2)}
+                      ₹{getBillOriginalTotal(b).toFixed(2)}
                     </div>
                     {isPartiallyRefunded && (
                       <div className="text-[11px] text-success font-medium">
@@ -239,7 +239,7 @@ export function PaymentsTab() {
           <div className="space-y-3 py-3 text-sm">
             <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
               <div><strong>Patient:</strong> {billToDelete?.patientName}</div>
-              <div><strong>Amount:</strong> ₹{billToDelete?.total.toFixed(2)}</div>
+              <div><strong>Amount:</strong> ₹{billToDelete ? getBillOriginalTotal(billToDelete).toFixed(2) : "0.00"}</div>
               <div><strong>Items:</strong> {billToDelete?.items.length} item(s)</div>
             </div>
             <label className="flex items-center gap-2 cursor-pointer pt-1">

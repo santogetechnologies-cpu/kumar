@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Printer, X, FileText } from "lucide-react";
-import type { Bill } from "@/lib/pharmacy-store";
+import { getBillOriginalTotal, type Bill } from "@/lib/pharmacy-store";
 
 export function normalizePrintFormat(format?: string): string {
   if (!format) return "A4-Portrait";
@@ -320,7 +320,7 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
                       )}
                       <div className={`flex justify-between font-bold border-t pt-1.5 mt-1 ${isThermal || isA5 ? "text-sm" : "text-base"}`}>
                         <span>Net Amount:</span>
-                        <span>₹{bill.total.toFixed(2)}</span>
+                        <span>₹{getBillOriginalTotal(bill).toFixed(2)}</span>
                       </div>
                     </>
                   );

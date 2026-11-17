@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from "react";
-import { usePharmacy, type Medicine } from "@/lib/pharmacy-store";
+import { usePharmacy, round2, type Medicine } from "@/lib/pharmacy-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,16 +14,57 @@ import { BillPrintDialog } from "./BillPrintDialog";
 import type { Bill } from "@/lib/pharmacy-store";
 
 /* ── Types ── */
+type StockItem = Medicine & { _isMaterial: boolean };
+
+/** One frozen line of the cart: a specific batch at the price it had when added. */
+interface CartLine {
+  medId: string;
+  batch: string;
+  price: number;
+  qty: number;
+}
+
 interface CartState {
+  key: string;
   name: string;
   requestedQty: number;
+  /** Batch allocation + prices, frozen when qty changes (NOT recomputed on data reload). */
+  lines: CartLine[];
 }
 
 interface ItemGroup {
+  key: string;
   name: string;
   category: string;
-  batches: Medicine[];
+  isMaterial: boolean;
+  /** All batches, sellable ones first (earliest expiry first). */
+  batches: StockItem[];
+  /** Non-expired batches with pharmacy stock, in FIFO order. */
+  sellable: StockItem[];
   totalPharmacyStock: number;
+  /** Non-expired batches that have stock only in the main store (need transfer). */
+  inMainOnly: StockItem[];
+}
+
+/** Local date as YYYY-MM-DD (expiry dates are stored as plain dates). */
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const isExpired = (expiry: string) => !!expiry && expiry.slice(0, 10) < todayStr();
+
+/** FIFO allocation over sellable batches. Returns null if not enough stock. */
+function allocate(group: ItemGroup, totalQty: number): CartLine[] | null {
+  const out: CartLine[] = [];
+  let rem = totalQty;
+  for (const med of group.sellable) {
+    if (rem <= 0) break;
+    const take = Math.min(rem, med.pharmacyQuantity);
+    if (take <= 0) continue;
+    out.push({ medId: med.id, batch: med.batch, price: med.price, qty: take });
+    rem -= take;
+  }
+  return rem > 0 ? null : out;
 }
 
 export function DispensingTab() {
@@ -32,6 +73,7 @@ export function DispensingTab() {
   const [q, setQ] = useState("");
   const [lastBill, setLastBill] = useState<Bill | null>(null);
   const [showPrintDialog, setShowPrintDialog] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   /* Cart & Bill */
   const [cartState, setCartState] = useState<CartState[]>([]);
@@ -45,28 +87,38 @@ export function DispensingTab() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   /* Merged medicines + materials */
-  const allItems = useMemo(() => [
+  const allItems = useMemo<StockItem[]>(() => [
     ...medicines.map(m => ({ ...m, _isMaterial: false })),
-    ...materials.map(m => ({ ...m, _isMaterial: true })),
+    ...materials.map(m => ({ ...(m as Medicine), _isMaterial: true })),
   ], [medicines, materials]);
 
-  /* FIFO groups: group by name, sort batches by expiry */
+  /* Groups: medicines and materials are kept separate even if names match */
   const groups = useMemo<ItemGroup[]>(() => {
-    const map = new Map<string, Medicine[]>();
+    const map = new Map<string, StockItem[]>();
     for (const m of allItems) {
-      const key = m.name.toLowerCase();
+      const key = (m._isMaterial ? "mat:" : "med:") + m.name.trim().toLowerCase();
       if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(m as Medicine);
+      map.get(key)!.push(m);
     }
+    const byExpiry = (a: StockItem, b: StockItem) => (a.expiry || "").localeCompare(b.expiry || "");
     const result: ItemGroup[] = [];
-    map.forEach(batches => {
-      const sorted = [...batches].sort((a, b) => {
-        if (a.pharmacyQuantity > 0 && b.pharmacyQuantity <= 0) return -1;
-        if (a.pharmacyQuantity <= 0 && b.pharmacyQuantity > 0) return 1;
-        return new Date(a.expiry).getTime() - new Date(b.expiry).getTime();
+    map.forEach((batches, key) => {
+      const sellable = batches
+        .filter(b => b.pharmacyQuantity > 0 && !isExpired(b.expiry))
+        .sort(byExpiry);
+      const rest = batches.filter(b => !sellable.includes(b)).sort(byExpiry);
+      const inMainOnly = batches.filter(b => b.mainQuantity > 0 && b.pharmacyQuantity <= 0 && !isExpired(b.expiry));
+      const all = [...sellable, ...rest];
+      result.push({
+        key,
+        name: all[0].name,
+        category: all[0].category,
+        isMaterial: all[0]._isMaterial,
+        batches: all,
+        sellable,
+        totalPharmacyStock: sellable.reduce((s, m) => s + m.pharmacyQuantity, 0),
+        inMainOnly,
       });
-      const totalPharmacyStock = sorted.reduce((s, m) => s + m.pharmacyQuantity, 0);
-      result.push({ name: sorted[0].name, category: sorted[0].category, batches: sorted, totalPharmacyStock });
     });
     return result.sort((a, b) => a.name.localeCompare(b.name));
   }, [allItems]);
@@ -80,100 +132,71 @@ export function DispensingTab() {
     ).slice(0, 15);
   }, [q, groups]);
 
-  /* FIFO allocation */
-  const resolveFifo = (group: ItemGroup, totalQty: number) => {
-    const out: { med: Medicine; qty: number }[] = [];
-    let rem = totalQty;
-    for (const med of group.batches) {
-      if (rem <= 0) break;
-      if (med.pharmacyQuantity <= 0) continue;
-      const take = Math.min(rem, med.pharmacyQuantity);
-      out.push({ med, qty: take });
-      rem -= take;
-    }
-    return out;
-  };
-
-  /* Click item → add 1 unit instantly */
-  const handleAddItem = (g: ItemGroup) => {
-    if (g.totalPharmacyStock <= 0) {
-      toast.error("No pharmacy stock available");
+  /** Set the quantity for a group; re-allocates batches and freezes prices at this moment. */
+  const setGroupQty = (key: string, newQty: number) => {
+    const g = groups.find(x => x.key === key);
+    if (!g) return;
+    if (newQty <= 0) {
+      setCartState(c => c.filter(x => x.key !== key));
       return;
     }
-
+    const lines = newQty <= g.totalPharmacyStock ? allocate(g, newQty) : null;
+    if (!lines) { toast.error(`Max stock: ${g.totalPharmacyStock}`); return; }
     setCartState(c => {
-      const ex = c.find(x => x.name === g.name);
-      if (ex) {
-        if (ex.requestedQty + 1 > g.totalPharmacyStock) {
-          toast.error(`Max stock: ${g.totalPharmacyStock}`);
-          return c;
-        }
-        return c.map(x => x.name === g.name ? { ...x, requestedQty: x.requestedQty + 1 } : x);
-      } else {
-        return [...c, { name: g.name, requestedQty: 1 }];
-      }
+      const exists = c.some(x => x.key === key);
+      const entry: CartState = { key, name: g.name, requestedQty: newQty, lines };
+      return exists ? c.map(x => (x.key === key ? entry : x)) : [...c, entry];
     });
+  };
 
-    const activeBatch = g.batches.find(b => b.pharmacyQuantity > 0) || g.batches[0];
+  const qtyInCart = (key: string) => cartState.find(x => x.key === key)?.requestedQty ?? 0;
+
+  /* Click item → add 1 unit */
+  const handleAddItem = (g: ItemGroup) => {
+    if (g.totalPharmacyStock <= 0) {
+      toast.error(g.inMainOnly.length ? "Stock is in main store — transfer it to pharmacy first" : "No pharmacy stock available");
+      return;
+    }
+    const newQty = qtyInCart(g.key) + 1;
+    if (newQty > g.totalPharmacyStock) { toast.error(`Max stock: ${g.totalPharmacyStock}`); return; }
+    setGroupQty(g.key, newQty);
+    const activeBatch = g.sellable[0];
     toast.success(`Added ${g.name} (${activeBatch.batch} · ₹${activeBatch.price.toFixed(2)})`);
     setQ("");
     searchRef.current?.focus();
   };
 
   /* Cart qty controls */
-  const changeQty = (name: string, delta: number) => {
-    setCartState(c => c.flatMap(x => {
-      if (x.name !== name) return [x];
-      const g = groups.find(g => g.name === name);
-      if (!g) return [];
-      const nq = x.requestedQty + delta;
-      if (nq <= 0) return [];
-      if (nq > g.totalPharmacyStock) { toast.error(`Max stock: ${g.totalPharmacyStock}`); return [x]; }
-      return [{ ...x, requestedQty: nq }];
-    }));
-  };
+  const changeQty = (key: string, delta: number) => setGroupQty(key, qtyInCart(key) + delta);
+  const setQtyDirect = (key: string, val: string) => setGroupQty(key, parseInt(val) || 0);
+  const removeItem = (key: string) => setCartState(c => c.filter(x => x.key !== key));
 
-  const setQtyDirect = (name: string, val: string) => {
-    const n = parseInt(val) || 0;
-    setCartState(c => c.flatMap(x => {
-      if (x.name !== name) return [x];
-      const g = groups.find(g => g.name === name);
-      if (!g) return [];
-      if (n <= 0) return [];
-      if (n > g.totalPharmacyStock) { toast.error(`Max stock: ${g.totalPharmacyStock}`); return [x]; }
-      return [{ ...x, requestedQty: n }];
-    }));
-  };
+  /* Cart totals come ONLY from the frozen lines, so the amount never changes on reload */
+  const cart = useMemo(() => cartState.map(c => ({
+    ...c,
+    itemTotal: round2(c.lines.reduce((s, l) => s + l.qty * l.price, 0)),
+    max: groups.find(g => g.key === c.key)?.totalPharmacyStock ?? 0,
+  })), [cartState, groups]);
 
-  const removeItem = (name: string) => setCartState(c => c.filter(x => x.name !== name));
-
-  const cart = useMemo(() => {
-    return cartState.map(c => {
-      const g = groups.find(g => g.name === c.name);
-      if (!g) return null;
-      const breakdown = resolveFifo(g, c.requestedQty);
-      const itemTotal = breakdown.reduce((s, b) => s + b.qty * b.med.price, 0);
-      return { ...c, group: g, breakdown, itemTotal };
-    }).filter(Boolean) as (CartState & { group: ItemGroup, breakdown: ReturnType<typeof resolveFifo>, itemTotal: number })[];
-  }, [cartState, groups]);
-
-  const grossTotal = cart.reduce((s, x) => s + x.itemTotal, 0);
-  const total = grossTotal - (grossTotal * discountPct) / 100;
+  const grossTotal = round2(cart.reduce((s, x) => s + x.itemTotal, 0));
+  const total = round2(grossTotal * (1 - discountPct / 100));
 
   /* Dispense */
   const dispense = async () => {
+    if (busy) return;
     if (!patientName.trim()) { toast.error("Enter patient name"); return; }
     if (!doctorName.trim()) { toast.error("Please select a prescribing doctor"); return; }
     if (!cart.length) { toast.error("Cart is empty"); return; }
+    setBusy(true);
     try {
       const selectedDoc = doctors.find(d => d.name === doctorName);
 
-      const billItems = cart.flatMap(c => 
-        c.breakdown.map(b => ({
-          medicineId: b.med.id, 
-          name: b.med.name, 
-          quantity: b.qty, 
-          price: b.med.price
+      const billItems = cart.flatMap(c =>
+        c.lines.map(l => ({
+          medicineId: l.medId,
+          name: c.name,
+          quantity: l.qty,
+          price: l.price,
         }))
       );
 
@@ -198,6 +221,8 @@ export function DispensingTab() {
       if (autoPrint) setShowPrintDialog(true);
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -280,13 +305,13 @@ export function DispensingTab() {
           ) : (
             <div className="space-y-3 flex-1 overflow-auto max-h-80 pr-1">
               {cart.map(item => (
-                <div key={item.name} className="rounded-xl border border-border/50 p-3.5 bg-background/50 hover:bg-accent/30 transition-colors shadow-sm">
+                <div key={item.key} className="rounded-xl border border-border/50 p-3.5 bg-background/50 hover:bg-accent/30 transition-colors shadow-sm">
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <div className="min-w-0">
                       <div className="font-semibold text-sm truncate text-foreground/90">{item.name}</div>
                       <div className="text-[11px] text-muted-foreground mt-1 flex flex-col gap-0.5">
-                        {item.breakdown.map((b, i) => (
-                          <span key={i}>Batch {b.med.batch} <span className="opacity-50">|</span> {b.qty} × ₹{b.med.price.toFixed(2)}</span>
+                        {item.lines.map((b, i) => (
+                          <span key={i}>Batch {b.batch} <span className="opacity-50">|</span> {b.qty} × ₹{b.price.toFixed(2)}</span>
                         ))}
                       </div>
                     </div>
@@ -298,25 +323,25 @@ export function DispensingTab() {
                   <div className="flex items-center justify-between border-t border-border/50 pt-2.5">
                     <div className="flex items-center gap-1 bg-background rounded-lg border shadow-sm p-0.5">
                       <Button size="icon" variant="ghost" className="h-7 w-7 rounded-md hover:bg-accent hover:text-accent-foreground"
-                        onClick={() => changeQty(item.name, -1)}>
+                        onClick={() => changeQty(item.key, -1)}>
                         <Minus className="h-3.5 w-3.5" />
                       </Button>
                       <Input
                         type="number"
                         className="h-7 w-12 text-center px-1 text-sm font-bold border-0 bg-transparent focus-visible:ring-0 shadow-none"
                         value={item.requestedQty}
-                        onChange={e => setQtyDirect(item.name, e.target.value)}
+                        onChange={e => setQtyDirect(item.key, e.target.value)}
                         min={0}
                       />
                       <Button size="icon" variant="ghost" className="h-7 w-7 rounded-md hover:bg-accent hover:text-accent-foreground"
-                        onClick={() => changeQty(item.name, 1)}>
+                        onClick={() => changeQty(item.key, 1)}>
                         <Plus className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                     <div className="flex items-center gap-3">
-                       <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Max {item.group.totalPharmacyStock}</span>
+                       <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Max {item.max}</span>
                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
-                        onClick={() => removeItem(item.name)}>
+                        onClick={() => removeItem(item.key)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -359,7 +384,7 @@ export function DispensingTab() {
                 >{p}</button>
               ))}
             </div>
-            <Button onClick={dispense} disabled={!cart.length} className="w-full h-12 text-base font-bold shadow-md hover:shadow-lg transition-all rounded-xl relative overflow-hidden group">
+            <Button onClick={dispense} disabled={!cart.length || busy} className="w-full h-12 text-base font-bold shadow-md hover:shadow-lg transition-all rounded-xl relative overflow-hidden group">
               <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]"></div>
               <Receipt className="h-5 w-5 mr-2" /> Dispense & Generate Bill
             </Button>
@@ -417,14 +442,14 @@ export function DispensingTab() {
             {filtered.map(g => {
               const out = g.totalPharmacyStock <= 0;
               const low = !out && g.batches.some(b => b.pharmacyQuantity <= b.minLevel);
-              const firstBatch = g.batches[0];
-              const isMat = (firstBatch as any)._isMaterial;
-              const inCart = cart.find(x => x.name === g.name);
+              const firstBatch = g.sellable[0] ?? g.batches[0];
+              const isMat = g.isMaterial;
+              const inCart = cart.find(x => x.key === g.key);
               const cartQty = inCart ? inCart.requestedQty : 0;
 
               return (
                 <button
-                  key={g.name}
+                  key={g.key}
                   onClick={() => handleAddItem(g)}
                   disabled={out}
                   className="w-full text-left rounded-xl border border-border/60 bg-card p-4 hover:border-primary/50 hover:bg-primary/[0.03] hover:shadow-md transition-all active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:border-border/60 disabled:hover:bg-card group"
@@ -463,11 +488,16 @@ export function DispensingTab() {
                         {g.batches.length > 3 && (
                           <div className="text-[10px] text-muted-foreground pl-1.5 pt-1 font-medium italic">+{g.batches.length - 3} more batches available</div>
                         )}
+                        {g.inMainOnly.length > 0 && (
+                          <div className="text-[10px] text-warning font-semibold pl-1.5 pt-1">
+                            New stock in main store ({g.inMainOnly.map(b => b.batch + " @ ₹" + b.price.toFixed(2)).join(", ")}) — transfer to pharmacy to sell
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="text-right shrink-0 ml-2 flex flex-col items-end">
                       <div className="font-extrabold text-primary text-lg tracking-tight">
-                        {g.batches.filter(b => b.pharmacyQuantity > 0).some(b => b.price !== firstBatch.price) 
+                        {g.sellable.some(b => b.price !== firstBatch.price) 
                            ? <div className="text-right">
                                <span className="text-lg font-bold">₹{firstBatch.price.toFixed(2)}</span>
                                <span className="block text-[10px] text-muted-foreground font-normal">Multiple batch rates</span>

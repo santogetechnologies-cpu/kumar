@@ -101,8 +101,15 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
 
   const submit = () => {
     if (!meta.supplier.trim()) { toast.error("Supplier is required"); return; }
-    const valid = rows.filter(r => r.product.trim() && r.batch.trim() && r.exp && (r.qty > 0 || r.free > 0));
-    if (!valid.length) { toast.error("At least one row needs: Product, Batch, Expiry, Qty"); return; }
+    const isComplete = (r: InvoiceRow) => r.product.trim() && r.batch.trim() && r.exp && r.mrp > 0 && (r.qty > 0 || r.free > 0);
+    const isBlank = (r: InvoiceRow) => !r.product.trim() && !r.batch.trim() && !r.qty && !r.mrp;
+    const incomplete = rows.filter(r => !isBlank(r) && !isComplete(r));
+    if (incomplete.length) {
+      toast.error(`Row "${incomplete[0].product || "(no product)"}" is incomplete. Each row needs Product, Batch, Expiry, MRP and Qty`);
+      return;
+    }
+    const valid = rows.filter(isComplete);
+    if (!valid.length) { toast.error("Each row needs Product, Batch, Expiry, MRP and Qty"); return; }
     onSave(valid, meta);
     reset();
     onOpenChange(false);

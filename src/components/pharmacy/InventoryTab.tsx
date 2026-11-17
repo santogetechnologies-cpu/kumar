@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { usePharmacy } from "@/lib/pharmacy-store";
+import { useState, useMemo, useEffect } from "react";
+import { usePharmacy, adjustStock, normKey } from "@/lib/pharmacy-store";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -294,7 +294,7 @@ function StockComparisonView() {
 }
 
 function MedicinesMgmt() {
-  const { medicines, addMedicine, deleteMedicine } = usePharmacy();
+  const { medicines, addMedicine, updateMedicine, deleteMedicine } = usePharmacy();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -305,9 +305,16 @@ function MedicinesMgmt() {
     setSaving(true);
     try {
       for (const r of rows) {
+        // Same name + same batch already in stock → add quantity to it instead of a duplicate row
+        const existing = medicines.find(m => normKey(m.name) === normKey(r.product) && normKey(m.batch) === normKey(r.batch));
+        if (existing) {
+          await adjustStock("medicines", existing.id, r.qty + r.free, 0);
+          await updateMedicine(existing.id, { price: r.mrp, expiry: r.exp });
+          continue;
+        }
         await addMedicine({
-          name: r.product, category: "Tablet", batch: r.batch, expiry: r.exp,
-          mainQuantity: r.qty + r.free, pharmacyQuantity: 0, minLevel: 10, price: r.mrp || r.ptr, supplier: meta.supplier,
+          name: r.product.trim(), category: "Tablet", batch: r.batch.trim(), expiry: r.exp,
+          mainQuantity: r.qty + r.free, pharmacyQuantity: 0, minLevel: 10, price: r.mrp, supplier: meta.supplier,
         });
       }
       toast.success(`Invoice saved · ${rows.length} medicine${rows.length > 1 ? "s" : ""} added`);
@@ -339,7 +346,7 @@ function MedicinesMgmt() {
 }
 
 function MaterialsMgmt() {
-  const { materials, addMaterial, deleteMaterial } = usePharmacy();
+  const { materials, addMaterial, updateMaterial, deleteMaterial } = usePharmacy();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -350,9 +357,15 @@ function MaterialsMgmt() {
     setSaving(true);
     try {
       for (const r of rows) {
+        const existing = materials.find(m => normKey(m.name) === normKey(r.product) && normKey(m.batch) === normKey(r.batch));
+        if (existing) {
+          await adjustStock("materials", existing.id, r.qty + r.free, 0);
+          await updateMaterial(existing.id, { price: r.mrp, expiry: r.exp });
+          continue;
+        }
         await addMaterial({
-          name: r.product, category: "Surgical", batch: r.batch, expiry: r.exp,
-          mainQuantity: r.qty + r.free, pharmacyQuantity: 0, minLevel: 10, price: r.mrp || r.ptr, supplier: meta.supplier,
+          name: r.product.trim(), category: "Surgical", batch: r.batch.trim(), expiry: r.exp,
+          mainQuantity: r.qty + r.free, pharmacyQuantity: 0, minLevel: 10, price: r.mrp, supplier: meta.supplier,
         });
       }
       toast.success(`Invoice saved · ${rows.length} material${rows.length > 1 ? "s" : ""} added`);
@@ -715,36 +728,46 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
 
 function BatchEditDialog({ item, open, onOpenChange, type, onUpdate }: { item: any, open: boolean, onOpenChange: (o: boolean) => void, type: "medicine" | "material", onUpdate: (id: string, patch: any) => Promise<void> }) {
   const [batches, setBatches] = useState<any[]>([]);
+  // Snapshot of values when the dialog opened; used to compute what the user changed
+  const [originals, setOriginals] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // Sync internal state when opened
-  useMemo(() => {
+  // Copy batches ONLY when the dialog opens (data reloads must not wipe the user's edits)
+  useEffect(() => {
     if (open && item) {
-      setBatches(JSON.parse(JSON.stringify(item.batches))); // deep copy
+      setBatches(JSON.parse(JSON.stringify(item.batches)));
+      setOriginals(JSON.parse(JSON.stringify(item.batches)));
     }
-  }, [open, item]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const handleChange = (index: number, field: string, value: any) => {
-    const newBatches = [...batches];
-    newBatches[index][field] = value;
-    setBatches(newBatches);
+    setBatches(prev => prev.map((b, i) => (i === index ? { ...b, [field]: value } : b)));
   };
 
   const handleSave = async () => {
     setSaving(true);
+    const table = type === "medicine" ? "medicines" : "materials";
     try {
       for (const b of batches) {
-        // Find if something changed
-        const original = item.batches.find((orig: any) => orig.id === b.id);
+        const original = originals.find((orig: any) => orig.id === b.id);
+        if (!original) continue;
         const patch: any = {};
-        if (b.price !== original.price) patch.price = parseFloat(b.price) || 0;
-        if (b.mainQuantity !== original.mainQuantity) patch.mainQuantity = parseInt(b.mainQuantity) || 0;
-        if (b.pharmacyQuantity !== original.pharmacyQuantity) patch.pharmacyQuantity = parseInt(b.pharmacyQuantity) || 0;
+        const newPrice = parseFloat(b.price);
+        if (!isNaN(newPrice) && newPrice !== Number(original.price)) patch.price = newPrice;
         if (b.expiry !== original.expiry) patch.expiry = b.expiry;
-        if (b.batch !== original.batch) patch.batch = b.batch;
-        
+        if (String(b.batch).trim() !== original.batch) patch.batch = String(b.batch).trim();
+
         if (Object.keys(patch).length > 0) {
           await onUpdate(b.id, patch);
+        }
+
+        // Stock: apply only the DIFFERENCE the user typed, atomically.
+        // Sales made while this dialog was open are therefore not lost.
+        const mainDelta = (parseInt(b.mainQuantity) || 0) - Number(original.mainQuantity);
+        const pharmDelta = (parseInt(b.pharmacyQuantity) || 0) - Number(original.pharmacyQuantity);
+        if (mainDelta || pharmDelta) {
+          await adjustStock(table, b.id, mainDelta, pharmDelta);
         }
       }
       toast.success("Batches updated successfully");
@@ -848,7 +871,7 @@ function PurchasesMgmt() {
           free_quantity: r.free,
           discount_amount: +discountAmt.toFixed(2),
           mrp: r.mrp,
-          batch: r.batch,
+          batch: r.batch.trim(),
           expiry: r.exp
         });
       }
@@ -908,7 +931,15 @@ function PurchasesMgmt() {
                   <td className="px-3 py-2.5">₹{p.cost}</td>
                   <td className="px-3 py-2.5">{p.mrp ? `₹${p.mrp}` : "-"}</td>
                   <td className={`px-3 py-2.5 font-medium ${marginClass}`}>{p.mrp ? `₹${margin.toFixed(2)}` : "-"}</td>
-                  <td className="px-3 py-2.5"><Badge variant={p.status === "received" ? "default" : p.status === "cancelled" ? "destructive" : "secondary"}>{p.status}</Badge></td>
+                  <td className="px-3 py-2.5">
+                    <Badge variant={p.status === "received" ? "default" : p.status === "cancelled" ? "destructive" : "secondary"}>{p.status}</Badge>
+                    {p.status === "received" && (
+                      <div className="text-[10px] text-muted-foreground mt-0.5 whitespace-nowrap">→ Main store · transfer to pharmacy to sell</div>
+                    )}
+                    {p.status === "pending" && (!p.mrp || !p.batch || !p.expiry) && (
+                      <div className="text-[10px] text-destructive mt-0.5 whitespace-nowrap">Missing MRP/batch/expiry</div>
+                    )}
+                  </td>
                   <td className="px-3 py-2.5 text-right whitespace-nowrap">
                     <div className="flex items-center gap-1 justify-end">
                       {p.status === "pending" && (
@@ -1180,44 +1211,9 @@ function LowStockView() {
 
   // Purchase order dialog state
   const [poItem, setPoItem] = useState<any | null>(null);
-  const [poSupplier, setPoSupplier] = useState("");
-  const [poQty, setPoQty] = useState<number>(0);
-  const [poCost, setPoCost] = useState<number>(0);
   const [poSaving, setPoSaving] = useState(false);
 
-  const openPO = (item: any) => {
-    setPoItem(item);
-    setPoSupplier(item.supplier || "");
-    setPoQty(getEffectiveMinLevel(item, generalMinStock) * 2 || 10);
-    setPoCost(0);
-  };
-
-  const submitPO = async () => {
-    if (!poItem) return;
-    if (!poSupplier.trim()) { toast.error("Enter supplier name"); return; }
-    if (poQty <= 0) { toast.error("Enter quantity"); return; }
-    setPoSaving(true);
-    try {
-      await addPurchase({
-        item: poItem.name,
-        supplier: poSupplier.trim(),
-        quantity: poQty,
-        received: 0,
-        cost: poCost,
-        status: "pending",
-        invoice_no: "",
-        free_quantity: 0,
-        discount_amount: 0,
-        mrp: poItem.price,
-      });
-      toast.success(`Purchase order created for ${poItem.name}`);
-      setPoItem(null);
-    } catch (e: any) {
-      toast.error("Failed: " + e.message);
-    } finally {
-      setPoSaving(false);
-    }
-  };
+  const openPO = (item: any) => setPoItem(item);
 
   return (
     <>
@@ -1279,7 +1275,9 @@ function LowStockView() {
                 invoice_no: meta.invoiceNo,
                 free_quantity: r.free,
                 discount_amount: +discountAmt.toFixed(2),
-                mrp: r.mrp
+                mrp: r.mrp,
+                batch: r.batch.trim(),
+                expiry: r.exp
               });
             }
             toast.success(`Purchase order created · ${rows.length} line${rows.length > 1 ? "s" : ""}`);
@@ -1295,7 +1293,8 @@ function LowStockView() {
         initialRows={poItem ? [{
           product: poItem.name,
           hsn: "", batch: "", exp: "",
-          mrp: poItem.price, ptr: poItem.price,
+          // Leave MRP/PTR empty: staff must type the NEW invoice price (never reuse old price)
+          mrp: 0, ptr: 0,
           qty: getEffectiveMinLevel(poItem, generalMinStock) * 2 || 10,
           free: 0, disPct: 0, gstPct: 0
         }] : undefined}
