@@ -8,8 +8,9 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Plus, Minus, Trash2, ShoppingCart, Search, User,
-  Receipt, CheckCircle2, AlertTriangle, CalendarClock, Printer,
+  Receipt, CheckCircle2, AlertTriangle, CalendarClock, Printer, PauseCircle,
 } from "lucide-react";
+import { holdBill, removeHeldBill, peekPendingResume, takePendingResume } from "@/lib/held-bills";
 import { toast } from "sonner";
 import { BillPrintDialog } from "./BillPrintDialog";
 import type { Bill } from "@/lib/pharmacy-store";
@@ -84,6 +85,7 @@ export function DispensingTab() {
   const [payment, setPayment] = useState("Cash");
   const [discountPct, setDiscountPct] = useState<number>(0);
   const [lastBillId, setLastBillId] = useState<string | null>(null);
+  const [resumedHoldId, setResumedHoldId] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -212,6 +214,8 @@ export function DispensingTab() {
         status: "paid",
         paymentMethod: payment,
       });
+      // Bill is created now, so its date is the dispensed date. Drop the held copy if this came from one.
+      if (resumedHoldId) { removeHeldBill(resumedHoldId); setResumedHoldId(null); }
       setLastBillId(bill.id);
       setLastBill(bill);
       toast.success(`Dispensed! Bill ${bill.id}`);
@@ -226,6 +230,55 @@ export function DispensingTab() {
       setBusy(false);
     }
   };
+
+  /* Hold: park the cart + patient details; no stock is deducted, no bill is created */
+  const holdCurrent = () => {
+    if (!cart.length) { toast.error("Cart is empty"); return; }
+    if (!patientName.trim()) { toast.error("Enter patient name to hold the bill"); return; }
+    const h = holdBill({
+      patientName: patientName.trim(),
+      patientId: patientId.trim(),
+      doctorName,
+      payment,
+      discountPct,
+      items: cart.map(c => ({ key: c.key, name: c.name, qty: c.requestedQty })),
+      estTotal: total,
+    });
+    toast.success(`Bill held (${h.id}). Find it in the Held Bills tab.`);
+    setCartState([]);
+    setPatientName("");
+    setPatientId("");
+    setDoctorName("");
+    setDiscountPct(0);
+  };
+
+  /* Resume a held bill picked from the Held Bills tab (re-allocates batches against current stock) */
+  useEffect(() => {
+    if (!groups.length || !peekPendingResume()) return;
+    const h = takePendingResume();
+    if (!h) return;
+    const next: CartState[] = [];
+    const problems: string[] = [];
+    for (const it of h.items) {
+      const g = groups.find(x => x.key === it.key);
+      if (!g) { problems.push(`${it.name} (no longer in stock list)`); continue; }
+      const qty = Math.min(it.qty, g.totalPharmacyStock);
+      if (qty <= 0) { problems.push(`${it.name} (out of stock)`); continue; }
+      const lines = allocate(g, qty);
+      if (!lines) { problems.push(it.name); continue; }
+      if (qty < it.qty) problems.push(`${it.name} (only ${qty} of ${it.qty} available)`);
+      next.push({ key: g.key, name: g.name, requestedQty: qty, lines });
+    }
+    setCartState(next);
+    setPatientName(h.patientName);
+    setPatientId(h.patientId);
+    setDoctorName(h.doctorName);
+    setPayment(h.payment);
+    setDiscountPct(h.discountPct);
+    setResumedHoldId(h.id);
+    toast.success(`Held bill for ${h.patientName} loaded`);
+    if (problems.length) toast.warning(`Check stock: ${problems.join(", ")}`);
+  }, [groups]);
 
   const daysUntilExpiry = (exp: string) =>
     Math.floor((new Date(exp).getTime() - Date.now()) / 86400000);
@@ -385,10 +438,15 @@ export function DispensingTab() {
                 >{p}</button>
               ))}
             </div>
-            <Button onClick={dispense} disabled={!cart.length || busy} className="w-full h-12 text-base font-bold shadow-md hover:shadow-lg transition-all rounded-xl relative overflow-hidden group">
-              <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]"></div>
-              <Receipt className="h-5 w-5 mr-2" /> Dispense & Generate Bill
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={holdCurrent} disabled={!cart.length || busy} className="h-12 px-5 font-bold rounded-xl">
+                <PauseCircle className="h-5 w-5 mr-2" /> Hold
+              </Button>
+              <Button onClick={dispense} disabled={!cart.length || busy} className="flex-1 h-12 text-base font-bold shadow-md hover:shadow-lg transition-all rounded-xl relative overflow-hidden group">
+                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]"></div>
+                <Receipt className="h-5 w-5 mr-2" /> Dispense & Generate Bill
+              </Button>
+            </div>
             {lastBillId && (
               <div className="flex items-center justify-between text-sm pt-2">
                 <div className="text-success flex items-center gap-1.5 bg-success/10 px-2.5 py-1 rounded-md border border-success/20">

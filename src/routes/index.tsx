@@ -10,15 +10,18 @@ import { PaymentsTab } from "@/components/pharmacy/PaymentsTab";
 import { AnalyticsTab } from "@/components/pharmacy/AnalyticsTab";
 import { UserManagementTab } from "@/components/pharmacy/UserManagementTab";
 import { FinanceTab } from "@/components/pharmacy/FinanceTab";
-import { PillBottle, Undo2, Boxes, Receipt, BarChart3, Users, Loader2, Wallet } from "lucide-react";
+import { HeldBillsTab } from "@/components/pharmacy/HeldBillsTab";
+import { useHeldBills } from "@/lib/held-bills";
+import { PillBottle, Undo2, Boxes, Receipt, BarChart3, Users, Loader2, Wallet, PauseCircle } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
-type Tab = "dispensing" | "returns" | "inventory" | "payments" | "analytics" | "users" | "finance";
+type Tab = "dispensing" | "returns" | "inventory" | "payments" | "analytics" | "users" | "finance" | "held";
 
 function HomePage() {
+  const heldCount = useHeldBills().length;
   const { user, role, loading } = useAuth();
   const navigate = useNavigate();
   // Default tab based on role
@@ -60,6 +63,7 @@ function HomePage() {
     { id: "returns", label: "Returns & Refunds", icon: Undo2 },
     { id: "finance", label: "Finance & Expenses", icon: Wallet },
     { id: "payments", label: "Payment History", icon: Receipt },
+    { id: "held", label: `Held Bills${heldCount ? ` (${heldCount})` : ""}`, icon: PauseCircle },
   ];
 
   const visibleTabs = role === "admin" ? TABS_ADMIN : TABS_PHARMACIST;
@@ -105,6 +109,7 @@ function HomePage() {
         {tab === "returns" && <ReturnsTab />}
         {tab === "inventory" && <InventoryTab />}
         {tab === "payments" && <PaymentsTab />}
+        {tab === "held" && role !== "admin" && <HeldBillsTab onResume={() => setTab("dispensing")} />}
         {tab === "analytics" && <AnalyticsTab />}
         {tab === "finance" && <FinanceTab />}
         {tab === "users" && role === "admin" && <UserManagementTab />}
