@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import { usePharmacy, getBillNetTotal, getBillOriginalTotal, type Bill } from "@/lib/pharmacy-store";
 import { supabase } from "@/lib/supabase";
@@ -277,7 +278,7 @@ export function ReturnsTab() {
               </div>
               <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5" />
-                {new Date(bill.createdAt).toLocaleString()}
+                {formatDateTime(bill.createdAt)}
               </div>
             </div>
             <div className="text-right">
@@ -511,7 +512,7 @@ export function ReturnsTab() {
                           {b.status.replace("_", " ")}
                         </Badge>
                         <span className="text-xs text-muted-foreground">
-                          {new Date(b.createdAt).toLocaleDateString()} · {new Date(b.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatDate(b.createdAt)} · {new Date(b.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
 

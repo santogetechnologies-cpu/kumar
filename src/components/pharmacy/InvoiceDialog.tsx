@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, Calculator } from "lucide-react";
 import { toast } from "sonner";
+import { ExpiryInput } from "@/components/ui/expiry-input";
 
 export interface InvoiceRow {
   product: string;
@@ -195,7 +196,7 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
                   </td>
                   <td style={{ padding: "2px 4px" }}><input style={cellStyle} value={r.hsn} onChange={e => updateRow(i, { hsn: e.target.value })} /></td>
                   <td style={{ padding: "2px 4px" }}><input style={cellStyle} value={r.batch} onChange={e => updateRow(i, { batch: e.target.value })} /></td>
-                  <td style={{ padding: "2px 4px" }}><input type="date" style={{ ...cellStyle, width: "130px" }} value={r.exp} onChange={e => updateRow(i, { exp: e.target.value })} /></td>
+                  <td style={{ padding: "2px 4px" }}><ExpiryInput style={{ ...cellStyle, width: "130px" }} value={r.exp} onChange={iso => updateRow(i, { exp: iso })} /></td>
                   <td style={{ padding: "2px 4px" }}><input type="number" min="0" step="0.01" style={cellStyle} value={r.mrp || ""} onChange={e => updateRow(i, { mrp: parseFloat(e.target.value) || 0 })} /></td>
                   <td style={{ padding: "2px 4px" }}><input type="number" min="0" step="0.01" style={cellStyle} value={r.ptr || ""} onChange={e => updateRow(i, { ptr: parseFloat(e.target.value) || 0 })} /></td>
                   <td style={{ padding: "2px 4px" }}><input type="number" min="0" style={{ ...cellStyle, width: "70px" }} value={r.qty || ""} onChange={e => updateRow(i, { qty: parseInt(e.target.value) || 0 })} /></td>

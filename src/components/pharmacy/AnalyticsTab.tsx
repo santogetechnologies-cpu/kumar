@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { usePharmacy, getBillNetTotal } from "@/lib/pharmacy-store";
 import { Card } from "@/components/ui/card";
@@ -122,7 +123,7 @@ function buildAnswer(
     const totalStock = medInfo.reduce((s: number, m: any) => s + m.mainQuantity + m.pharmacyQuantity, 0);
     const pharmacyStock = medInfo.reduce((s: number, m: any) => s + m.pharmacyQuantity, 0);
     const batches = medInfo.length;
-    return `💊 **${medInfo[0].name}**\n\n📦 Stock: ${totalStock} units total (${pharmacyStock} in pharmacy, across ${batches} batch${batches !== 1 ? "es" : ""})\n💵 Price: ₹${medInfo[0].price.toFixed(2)}\n📅 Nearest expiry: ${new Date(medInfo.sort((a: any, b: any) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime())[0].expiry).toLocaleDateString()}${soldData ? `\n📊 Units sold: ${soldData.qty} · Revenue: ₹${soldData.revenue.toFixed(2)}` : "\n📊 Not yet sold"}`;
+    return `💊 **${medInfo[0].name}**\n\n📦 Stock: ${totalStock} units total (${pharmacyStock} in pharmacy, across ${batches} batch${batches !== 1 ? "es" : ""})\n💵 Price: ₹${medInfo[0].price.toFixed(2)}\n📅 Nearest expiry: ${formatDate(medInfo.sort((a: any, b: any) => new Date(a.expiry).getTime() - new Date(b.expiry).getTime())[0].expiry)}${soldData ? `\n📊 Units sold: ${soldData.qty} · Revenue: ₹${soldData.revenue.toFixed(2)}` : "\n📊 Not yet sold"}`;
   }
 
   /* ─── Low stock ─── */
@@ -175,10 +176,10 @@ function buildAnswer(
     res += `• Expiring in 30 days: ${in30.length}\n`;
     res += `• Expiring in 60 days: ${in60.length}\n`;
     if (expired.length > 0) {
-      res += `\n❌ **Expired items:**\n` + expired.slice(0, 4).map((m: any) => `• ${m.name} (${m.batch}) — expired ${new Date(m.expiry).toLocaleDateString()}`).join("\n");
+      res += `\n❌ **Expired items:**\n` + expired.slice(0, 4).map((m: any) => `• ${m.name} (${m.batch}) — expired ${formatDate(m.expiry)}`).join("\n");
     }
     if (in30.length > 0 && expired.length === 0) {
-      res += `\n⚠️ **Expiring soon:**\n` + in30.slice(0, 4).map((m: any) => `• ${m.name} (${m.batch}) — ${new Date(m.expiry).toLocaleDateString()}`).join("\n");
+      res += `\n⚠️ **Expiring soon:**\n` + in30.slice(0, 4).map((m: any) => `• ${m.name} (${m.batch}) — ${formatDate(m.expiry)}`).join("\n");
     }
     return res;
   }

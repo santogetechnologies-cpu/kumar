@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -260,7 +261,7 @@ export function BillPrintDialog({ open, onOpenChange, bill, format }: BillPrintD
 
               <div className={`space-y-0.5 ${!isThermal && !isA4Landscape ? "text-right" : ""}`}>
                 <p><strong>Bill No:</strong> {bill.id}</p>
-                <p><strong>Date:</strong> {new Date(bill.createdAt).toLocaleDateString()} {new Date(bill.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                <p><strong>Date:</strong> {formatDate(bill.createdAt)} {new Date(bill.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                 <p><strong>Billed By:</strong> {bill.createdBy || "Admin"}</p>
                 <p><strong>Payment:</strong> <span className="uppercase font-medium">{bill.paymentMethod}</span></p>
               </div>

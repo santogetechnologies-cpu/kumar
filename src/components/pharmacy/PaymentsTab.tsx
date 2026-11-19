@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { useMemo, useState } from "react";
 import { usePharmacy, getBillNetTotal, getBillOriginalTotal } from "@/lib/pharmacy-store";
 import { useAuth } from "@/lib/auth";
@@ -156,7 +157,7 @@ export function PaymentsTab() {
               return (
                 <tr key={b.id} className="border-t hover:bg-muted/20 transition">
                   <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">
-                    {new Date(b.createdAt).toLocaleString()}
+                    {formatDateTime(b.createdAt)}
                   </td>
                   <td className="px-3 py-2.5 font-mono font-semibold">{b.id}</td>
                   <td className="px-3 py-2.5">

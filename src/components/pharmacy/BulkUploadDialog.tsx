@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Download, Upload, Loader2, FileSpreadsheet, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { usePharmacy } from "@/lib/pharmacy-store";
+import { parseExpiry } from "@/lib/date-utils";
 
 interface BulkUploadDialogProps {
   open: boolean;
@@ -20,8 +21,8 @@ export function BulkUploadDialog({ open, onOpenChange, type }: BulkUploadDialogP
   const downloadTemplate = () => {
     const headers = "Product,HSN,Batch,Expiry,MRP,PTR,Qty,Free,DisPct,GstPct,Supplier\n";
     const example = type === "medicine" 
-      ? "Paracetamol 500mg,3004,B123,2026-12-31,10.0,8.0,100,10,5,12,PharmaCorp\n"
-      : "Surgical Mask,9018,SM99,2028-01-01,5.0,4.0,500,50,0,5,MedSupply\n";
+      ? "Paracetamol 500mg,3004,B123,31/12/2027,10.0,8.0,100,10,5,12,PharmaCorp\n"
+      : "Surgical Mask,9018,SM99,01/01/2028,5.0,4.0,500,50,0,5,MedSupply\n";
     
     const blob = new Blob([headers + example], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
@@ -49,6 +50,7 @@ export function BulkUploadDialog({ open, onOpenChange, type }: BulkUploadDialogP
 
         const headers = lines[0].toLowerCase().split(",").map(h => h.trim());
         const parsedRows = [];
+        const skipped: string[] = [];
         
         for (let i = 1; i < lines.length; i++) {
           const values = lines[i].split(",").map(v => v.trim());
@@ -58,11 +60,16 @@ export function BulkUploadDialog({ open, onOpenChange, type }: BulkUploadDialogP
           });
           
           if (row.product && row.batch && row.expiry) {
+            const expiryIso = parseExpiry(row.expiry);
+            if (!expiryIso) {
+              skipped.push(`Row ${i + 1} (${row.product}): bad expiry "${row.expiry}"`);
+              continue;
+            }
             parsedRows.push({
               product: row.product,
               hsn: row.hsn || "",
               batch: row.batch,
-              expiry: row.expiry,
+              expiry: expiryIso,
               mrp: parseFloat(row.mrp) || 0,
               ptr: parseFloat(row.ptr) || 0,
               qty: parseInt(row.qty) || 0,
@@ -74,6 +81,9 @@ export function BulkUploadDialog({ open, onOpenChange, type }: BulkUploadDialogP
           }
         }
         
+        if (skipped.length) {
+          toast.error(`${skipped.length} row(s) skipped — ${skipped.slice(0, 3).join("; ")}. Use DD/MM/YYYY or DD/Mon/YYYY.`);
+        }
         setRows(parsedRows);
         toast.success(`Parsed ${parsedRows.length} valid rows from CSV`);
       } catch (err) {

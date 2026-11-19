@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { useState } from "react";
 import { usePharmacy, getBillNetTotal, getBillOriginalTotal } from "@/lib/pharmacy-store";
 import { Card } from "@/components/ui/card";
@@ -55,7 +56,7 @@ export function BillHistoryTab() {
               {filtered.length === 0 && <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">No bills found matching your search.</td></tr>}
               {filtered.map((b) => (
                 <tr key={b.id} className="border-t hover:bg-muted/30 transition-colors">
-                  <td className="px-3 py-2.5">{new Date(b.createdAt).toLocaleString()}</td>
+                  <td className="px-3 py-2.5">{formatDateTime(b.createdAt)}</td>
                   <td className="px-3 py-2.5 font-mono text-xs">{b.id}</td>
                   <td className="px-3 py-2.5">
                     <div className="font-semibold">{b.patientName}</div>

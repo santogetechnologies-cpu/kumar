@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { useMemo, useState } from "react";
 import { usePharmacy, type Expense, getBillNetTotal } from "@/lib/pharmacy-store";
 import { useAuth } from "@/lib/auth";
@@ -46,7 +47,7 @@ function startOf(key: RangeKey, customStart?: string, customEnd?: string): { fro
 function fmt(d: Date) {
   if (d.getTime() === 0) return "Beginning";
   if (d.getTime() > 2000000000000) return "Present";
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" });
+  return formatDate(d);
 }
 
 /* Pharmacy-only internal use expense categories */
@@ -377,7 +378,7 @@ export function FinanceTab() {
               )}
               {filteredExpenses.map(e => (
                 <tr key={e.id} className="border-t">
-                  <td className="px-3 py-2.5">{new Date(e.date).toLocaleDateString()}</td>
+                  <td className="px-3 py-2.5">{formatDate(e.date)}</td>
                   <td className="px-3 py-2.5"><Badge variant="outline">{e.category}</Badge></td>
                   <td className="px-3 py-2.5">{e.description}</td>
                   <td className="px-3 py-2.5 text-muted-foreground text-xs">{e.createdBy}</td>
@@ -431,7 +432,7 @@ export function FinanceTab() {
                 )}
                 {filteredPurchases.map(p => (
                   <tr key={p.id} className="border-t">
-                    <td className="px-3 py-2.5">{new Date(p.createdAt).toLocaleDateString()}</td>
+                    <td className="px-3 py-2.5">{formatDate(p.createdAt)}</td>
                     <td className="px-3 py-2.5 font-semibold">{p.item}</td>
                     <td className="px-3 py-2.5">{p.supplier}</td>
                     <td className="px-3 py-2.5">{p.quantity}{p.free_quantity ? <span className="text-xs text-success ml-1">(+{p.free_quantity} free)</span> : ""}</td>

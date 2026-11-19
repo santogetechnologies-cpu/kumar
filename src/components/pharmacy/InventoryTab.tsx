@@ -15,6 +15,8 @@ import {
   LayoutDashboard, ArrowLeftRight, Plus, Trash2, Search, FileText, GitCompare, Loader2, ClipboardList, Settings2, Edit, ChevronDown, ChevronRight
 } from "lucide-react";
 import { toast } from "sonner";
+import { ExpiryInput } from "@/components/ui/expiry-input";
+import { formatDate, formatDateTime, parseExpiry } from "@/lib/date-utils";
 import { InvoiceDialog, type InvoiceRow, type InvoiceMeta, rowTaxable, rowGst } from "./InvoiceDialog";
 import { BulkUploadDialog } from "./BulkUploadDialog";
 import { MinStockConfigTab } from "./MinStockConfigTab";
@@ -564,7 +566,7 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
                         {g.batches.length} Batch{g.batches.length !== 1 ? 'es' : ''}
                       </Badge>
                     </td>
-                    <td className="px-3 py-2.5">{g.earliestExpiry ? new Date(g.earliestExpiry).toLocaleDateString() : "-"}</td>
+                    <td className="px-3 py-2.5">{g.earliestExpiry ? formatDate(g.earliestExpiry) : "-"}</td>
                     <td className="px-3 py-2.5 font-semibold text-blue-600">{g.mainQuantity}</td>
                     <td className="px-3 py-2.5 font-semibold text-green-600">{g.pharmacyQuantity}</td>
                     <td className="px-3 py-2.5 text-muted-foreground">{g.minLevel}</td>
@@ -624,7 +626,7 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
                                 return (
                                   <tr key={b.id} className="border-b last:border-0 hover:bg-muted/40">
                                     <td className="py-1.5 font-mono font-semibold">{b.batch}</td>
-                                    <td className="py-1.5 text-muted-foreground">{new Date(b.expiry).toLocaleDateString()}</td>
+                                    <td className="py-1.5 text-muted-foreground">{formatDate(b.expiry)}</td>
                                     <td className="py-1.5 font-bold text-primary">₹{b.price.toFixed(2)}</td>
                                     <td className="py-1.5 font-semibold text-blue-600">{b.mainQuantity}</td>
                                     <td className="py-1.5 font-semibold text-green-600">{b.pharmacyQuantity}</td>
@@ -674,7 +676,7 @@ function ItemTable({ rows, onDelete, type }: { rows: any[]; onDelete: (id: strin
                 <option value="auto">Auto (FEFO - Earliest Expiry First) [{activeBatches.reduce((s: number, b: any) => s + b.mainQuantity, 0)} available]</option>
                 {activeBatches.map((b: any) => (
                   <option key={b.id} value={b.id}>
-                    Batch {b.batch} | Exp: {new Date(b.expiry).toLocaleDateString()} | MRP: ₹{b.price} | Stock: {b.mainQuantity}
+                    Batch {b.batch} | Exp: {formatDate(b.expiry)} | MRP: ₹{b.price} | Stock: {b.mainQuantity}
                   </option>
                 ))}
               </select>
@@ -755,7 +757,10 @@ function BatchEditDialog({ item, open, onOpenChange, type, onUpdate }: { item: a
         const patch: any = {};
         const newPrice = parseFloat(b.price);
         if (!isNaN(newPrice) && newPrice !== Number(original.price)) patch.price = newPrice;
-        if (b.expiry !== original.expiry) patch.expiry = b.expiry;
+        if (b.expiry !== original.expiry) {
+          if (!parseExpiry(b.expiry)) throw new Error(`Invalid expiry for batch ${b.batch} — type day first, e.g. 27/04/2027`);
+          patch.expiry = b.expiry;
+        }
         if (String(b.batch).trim() !== original.batch) patch.batch = String(b.batch).trim();
 
         if (Object.keys(patch).length > 0) {
@@ -808,7 +813,7 @@ function BatchEditDialog({ item, open, onOpenChange, type, onUpdate }: { item: a
                       <Input value={b.batch} onChange={(e) => handleChange(i, 'batch', e.target.value)} className="h-8" />
                     </td>
                     <td className="px-3 py-2">
-                      <Input type="date" value={b.expiry} onChange={(e) => handleChange(i, 'expiry', e.target.value)} className="h-8 w-32" />
+                      <ExpiryInput value={b.expiry} onChange={(iso) => handleChange(i, 'expiry', iso)} />
                     </td>
                     <td className="px-3 py-2">
                       <div className="relative">
@@ -922,7 +927,7 @@ function PurchasesMgmt() {
 
               return (
                 <tr key={p.id} className="border-t">
-                  <td className="px-3 py-2.5">{new Date(p.createdAt).toLocaleDateString()}</td>
+                  <td className="px-3 py-2.5">{formatDate(p.createdAt)}</td>
                   <td className="px-3 py-2.5 font-mono text-xs">{p.invoice_no || "-"}</td>
                   <td className="px-3 py-2.5 font-semibold">{p.item}</td>
                   <td className="px-3 py-2.5">{p.supplier}</td>
@@ -1098,7 +1103,7 @@ function MovementsView() {
             )}
             {visibleMovements.map((m) => (
               <tr key={m.id} className="border-t">
-                <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{new Date(m.date).toLocaleString()}</td>
+                <td className="px-3 py-2.5 whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(m.date)}</td>
                 <td className="px-3 py-2.5"><Badge variant={m.type === "IN" ? "default" : "secondary"}>{m.type}</Badge></td>
                 <td className="px-3 py-2.5 font-semibold">{m.item}</td>
                 <td className="px-3 py-2.5 font-mono">{m.qty}</td>
@@ -1163,8 +1168,39 @@ function ExpiryView() {
     }
   };
 
+  // One-off correction for mistyped years: move every already-expired batch forward by 1 year.
+  const [fixing, setFixing] = useState(false);
+  const handleShiftExpired = async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const bad = [
+      ...medicines.filter(m => m.expiry && m.expiry.slice(0, 10) < today).map(m => ({ ...m, _type: "medicine" as const })),
+      ...materials.filter(m => m.expiry && m.expiry.slice(0, 10) < today).map(m => ({ ...m, _type: "material" as const })),
+    ];
+    if (bad.length === 0) { toast.info("No expired batches to fix."); return; }
+    const preview = bad.slice(0, 8).map(b => `${b.name} (${b.batch}): ${formatDate(b.expiry)} → ${formatDate(`${+b.expiry.slice(0, 4) + 1}${b.expiry.slice(4, 10)}`)}`).join("\n");
+    if (!confirm(`Move ${bad.length} expired batch(es) forward by 1 year?\n\n${preview}${bad.length > 8 ? `\n…and ${bad.length - 8} more` : ""}\n\nOnly do this if these dates were mistyped (e.g. 2026 instead of 2027).`)) return;
+    setFixing(true);
+    try {
+      for (const b of bad) {
+        const newExpiry = `${+b.expiry.slice(0, 4) + 1}${b.expiry.slice(4, 10)}`;
+        if (b._type === "medicine") await updateMedicine(b.id, { expiry: newExpiry });
+        else await updateMaterial(b.id, { expiry: newExpiry });
+      }
+      toast.success(`Fixed ${bad.length} batch(es).`);
+    } catch (e: any) {
+      toast.error("Fix failed: " + e.message);
+    } finally {
+      setFixing(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={handleShiftExpired} disabled={fixing}>
+          {fixing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null} Fix mistyped expiry (+1 year)
+        </Button>
+      </div>
       {["Expired", "Within 7 Days", "This Month", "Next Month", "Later"].map((k) => groups[k] && (
         <Card key={k} className={`p-4 ${colors[k]}`}>
           <div className="flex items-center justify-between mb-2">
@@ -1176,7 +1212,7 @@ function ExpiryView() {
               <div key={m.id} className="text-sm flex flex-col p-2 bg-background/50 rounded-lg border border-border/50">
                 <div className="flex justify-between font-medium">
                   <span>{m.name} <span className="text-muted-foreground font-mono">({m.batch})</span></span>
-                  <span className="text-muted-foreground">{new Date(m.expiry).toLocaleDateString()}</span>
+                  <span className="text-muted-foreground">{formatDate(m.expiry)}</span>
                 </div>
                 <div className="flex justify-between items-end mt-2">
                   <span className="text-xs text-muted-foreground">{m.mainQuantity + m.pharmacyQuantity} in stock · Loss: ₹{((m.mainQuantity + m.pharmacyQuantity) * m.price).toFixed(2)}</span>

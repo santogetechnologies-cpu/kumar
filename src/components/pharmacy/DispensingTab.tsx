@@ -1,3 +1,4 @@
+import { formatDate, formatDateTime } from "@/lib/date-utils";
 import { useMemo, useState, useRef, useEffect } from "react";
 import { usePharmacy, round2, type Medicine } from "@/lib/pharmacy-store";
 import { Button } from "@/components/ui/button";
@@ -475,7 +476,7 @@ export function DispensingTab() {
                               <span className={`font-mono px-1.5 py-0.5 rounded-sm font-semibold ${bi === 0 ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
                                 {bi === 0 ? "▶ " : "  "}{b.batch}
                               </span>
-                              <span className="text-muted-foreground">Exp: {new Date(b.expiry).toLocaleDateString()}</span>
+                              <span className="text-muted-foreground">Exp: {formatDate(b.expiry)}</span>
                               {days < 0 && <Badge variant="destructive" className="text-[9px] py-0 px-1 border-0">Expired</Badge>}
                               {days >= 0 && days <= 30 && <Badge className="text-[9px] py-0 px-1 bg-warning text-white border-0"><AlertTriangle className="h-2 w-2 mr-0.5" />{days}d</Badge>}
                               <span className="ml-auto text-muted-foreground font-medium flex items-center gap-2">
