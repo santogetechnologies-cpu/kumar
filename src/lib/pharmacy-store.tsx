@@ -78,6 +78,14 @@ export interface Purchase {
   free_quantity: number;
   discount_amount: number;
   mrp: number;
+  /** Supplier invoice values as entered (quantities/mrp above are in pieces) */
+  invoice_qty?: number;
+  invoice_qty_unit?: "piece" | "strip";
+  invoice_free_qty?: number;
+  invoice_free_unit?: "piece" | "strip";
+  pieces_per_strip?: number;
+  invoice_mrp?: number;
+  invoice_ptr?: number;
   batch?: string;
   expiry?: string;
   /** Inventory row this purchase was received into (set on receive). */
@@ -210,6 +218,13 @@ function mapPurchase(row: any): Purchase {
     free_quantity: row.free_quantity ?? 0,
     discount_amount: parseFloat(row.discount_amount ?? 0),
     mrp: parseFloat(row.mrp ?? 0),
+    invoice_qty: row.invoice_qty ?? undefined,
+    invoice_qty_unit: row.invoice_qty_unit ?? undefined,
+    invoice_free_qty: row.invoice_free_qty ?? undefined,
+    invoice_free_unit: row.invoice_free_unit ?? undefined,
+    pieces_per_strip: row.pieces_per_strip ?? undefined,
+    invoice_mrp: row.invoice_mrp != null ? parseFloat(row.invoice_mrp) : undefined,
+    invoice_ptr: row.invoice_ptr != null ? parseFloat(row.invoice_ptr) : undefined,
     batch: row.batch ?? undefined,
     expiry: row.expiry ?? undefined,
     targetId: row.target_id ?? undefined,
@@ -675,6 +690,13 @@ export function PharmacyProvider({ children }: { children: ReactNode }) {
       free_quantity: data.free_quantity,
       discount_amount: data.discount_amount,
       mrp: data.mrp,
+      invoice_qty: data.invoice_qty ?? null,
+      invoice_qty_unit: data.invoice_qty_unit ?? null,
+      invoice_free_qty: data.invoice_free_qty ?? null,
+      invoice_free_unit: data.invoice_free_unit ?? null,
+      pieces_per_strip: data.pieces_per_strip ?? null,
+      invoice_mrp: data.invoice_mrp ?? null,
+      invoice_ptr: data.invoice_ptr ?? null,
       batch: data.batch ?? null,
       expiry: data.expiry ?? null,
     });

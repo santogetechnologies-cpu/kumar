@@ -17,7 +17,7 @@ import {
 import { toast } from "sonner";
 import { ExpiryInput } from "@/components/ui/expiry-input";
 import { formatDate, formatDateTime, parseExpiry } from "@/lib/date-utils";
-import { InvoiceDialog, type InvoiceRow, type InvoiceMeta, rowTaxable, rowGst } from "./InvoiceDialog";
+import { InvoiceDialog, type InvoiceRow, type InvoiceMeta, rowTaxable, rowGst, invoiceOriginal } from "./InvoiceDialog";
 import { BulkUploadDialog } from "./BulkUploadDialog";
 import { MinStockConfigTab } from "./MinStockConfigTab";
 import { getEffectiveMinLevel } from "@/lib/pharmacy-store";
@@ -876,6 +876,7 @@ function PurchasesMgmt() {
           free_quantity: r.free,
           discount_amount: +discountAmt.toFixed(2),
           mrp: r.mrp,
+          ...invoiceOriginal(r),
           batch: r.batch.trim(),
           expiry: r.exp
         });
@@ -931,7 +932,13 @@ function PurchasesMgmt() {
                   <td className="px-3 py-2.5 font-mono text-xs">{p.invoice_no || "-"}</td>
                   <td className="px-3 py-2.5 font-semibold">{p.item}</td>
                   <td className="px-3 py-2.5">{p.supplier}</td>
-                  <td className="px-3 py-2.5">{p.quantity} {p.free_quantity ? <span className="text-success text-xs font-semibold">(+{p.free_quantity} Free)</span> : ""}</td>
+                  <td className="px-3 py-2.5">{p.quantity} {p.free_quantity ? <span className="text-success text-xs font-semibold">(+{p.free_quantity} Free)</span> : ""}
+                    {p.invoice_qty_unit && (p.invoice_qty_unit === "strip" || p.invoice_free_unit === "strip") && (
+                      <div className="text-[10px] text-muted-foreground whitespace-nowrap">
+                        Invoice: {p.invoice_qty} {p.invoice_qty_unit}{p.invoice_free_qty ? ` + ${p.invoice_free_qty} ${p.invoice_free_unit} free` : ""} · {p.pieces_per_strip} pcs/strip
+                      </div>
+                    )}
+                  </td>
                   <td className="px-3 py-2.5">{p.received}</td>
                   <td className="px-3 py-2.5">₹{p.cost}</td>
                   <td className="px-3 py-2.5">{p.mrp ? `₹${p.mrp}` : "-"}</td>
@@ -1312,6 +1319,7 @@ function LowStockView() {
                 free_quantity: r.free,
                 discount_amount: +discountAmt.toFixed(2),
                 mrp: r.mrp,
+                ...invoiceOriginal(r),
                 batch: r.batch.trim(),
                 expiry: r.exp
               });

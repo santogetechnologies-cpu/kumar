@@ -18,7 +18,16 @@ export interface InvoiceRow {
   free: number;
   disPct: number;
   gstPct: number;
+  /** Unit of purchased qty / free qty as entered on the supplier invoice (default piece) */
+  qtyUnit?: QtyUnit;
+  freeUnit?: QtyUnit;
+  /** Pieces per strip; shared by both quantities */
+  pps?: number;
+  /** Set once the row has been converted to pieces (prevents double conversion). Holds the supplier invoice values. */
+  original?: { qty: number; qtyUnit: QtyUnit; free: number; freeUnit: QtyUnit; pps: number; mrp: number; ptr: number };
 }
+
+export type QtyUnit = "piece" | "strip";
 
 export interface InvoiceMeta {
   supplier: string;
@@ -30,7 +39,49 @@ export interface InvoiceMeta {
 const emptyRow = (): InvoiceRow => ({
   product: "", hsn: "", batch: "", exp: "",
   mrp: 0, ptr: 0, qty: 0, free: 0, disPct: 0, gstPct: 0,
+  qtyUnit: "piece", freeUnit: "piece", pps: 0,
 });
+
+/** Derived piece-based values for a row as entered. Not applied to rows already converted. */
+export function rowCalc(r: InvoiceRow) {
+  const converted = !!r.original;
+  const strip = !converted && (r.qtyUnit === "strip" || r.freeUnit === "strip");
+  const pps = strip ? (r.pps || 0) : 1;
+  const actualQty = !converted && r.qtyUnit === "strip" ? r.qty * pps : r.qty;
+  const actualFree = !converted && r.freeUnit === "strip" ? r.free * pps : r.free;
+  const priceDiv = !converted && r.qtyUnit === "strip" ? pps : 1;
+  const totalStock = actualQty + actualFree;
+  const taxable = rowTaxable(r);
+  return {
+    pps, actualQty, actualFree, totalStock,
+    mrpPiece: priceDiv > 0 ? r.mrp / priceDiv : 0,
+    ptrPiece: priceDiv > 0 ? r.ptr / priceDiv : 0,
+    costPerPiece: totalStock > 0 ? taxable / totalStock : 0,
+  };
+}
+
+/** Convert entered rows to piece-based rows (qty/free in pieces, per-piece MRP/PTR), keeping supplier values in `original`. */
+export function toPieceRow(r: InvoiceRow): InvoiceRow {
+  if (r.original) return r;
+  const c = rowCalc(r);
+  return {
+    ...r,
+    qty: c.actualQty, free: c.actualFree, mrp: c.mrpPiece, ptr: c.ptrPiece,
+    qtyUnit: "piece", freeUnit: "piece", pps: 1,
+    original: { qty: r.qty, qtyUnit: r.qtyUnit || "piece", free: r.free, freeUnit: r.freeUnit || "piece", pps: c.pps, mrp: r.mrp, ptr: r.ptr },
+  };
+}
+
+/** Supplier-invoice values to persist on the purchase record. */
+export function invoiceOriginal(r: InvoiceRow) {
+  const o = r.original;
+  if (!o) return {};
+  return {
+    invoice_qty: o.qty, invoice_qty_unit: o.qtyUnit,
+    invoice_free_qty: o.free, invoice_free_unit: o.freeUnit,
+    pieces_per_strip: o.pps, invoice_mrp: o.mrp, invoice_ptr: o.ptr,
+  };
+}
 
 export function rowTaxable(r: InvoiceRow) {
   const gross = r.ptr * r.qty;
@@ -91,7 +142,7 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
       taxable, gst, net,
       roundOff: Math.round(net) - net,
       billAmount: Math.round(net),
-      totalQty: rows.reduce((s, r) => s + r.qty + r.free, 0),
+      totalQty: rows.reduce((s, r) => s + rowCalc(r).totalStock, 0),
     };
   }, [rows]);
 
@@ -111,7 +162,14 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
     }
     const valid = rows.filter(isComplete);
     if (!valid.length) { toast.error("Each row needs Product, Batch, Expiry, MRP and Qty"); return; }
-    onSave(valid, meta);
+    for (const r of valid) {
+      const usesStrip = r.qtyUnit === "strip" || r.freeUnit === "strip";
+      if (r.qty < 0 || r.free < 0) { toast.error(`"${r.product}": quantities cannot be negative`); return; }
+      if (usesStrip && !(Number.isInteger(r.pps) && (r.pps as number) >= 1)) {
+        toast.error(`"${r.product}": enter a valid Pieces per Strip (whole number, at least 1)`); return;
+      }
+    }
+    onSave(valid.map(toPieceRow), meta);
     reset();
     onOpenChange(false);
   };
@@ -162,7 +220,7 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
 
         {/* ---- Rows ---- */}
         <div style={{ overflowX: "auto", border: "1px solid hsl(var(--border))", borderRadius: "8px", marginTop: "12px" }}>
-          <table style={{ width: "100%", minWidth: "1150px", fontSize: "13px", borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", minWidth: "1250px", fontSize: "13px", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "hsl(var(--muted))", textAlign: "left" }}>
                 {["#","Product *","HSN","Batch *","Expiry *","MRP","PTR","Qty *","Free","Total","Taxable","Disc %","GST %","Net Amt",""].map(h => (
@@ -199,9 +257,29 @@ export function InvoiceDialog({ open, onOpenChange, title, onSave, existingProdu
                   <td style={{ padding: "2px 4px" }}><ExpiryInput style={{ ...cellStyle, width: "130px" }} value={r.exp} onChange={iso => updateRow(i, { exp: iso })} /></td>
                   <td style={{ padding: "2px 4px" }}><input type="number" min="0" step="0.01" style={cellStyle} value={r.mrp || ""} onChange={e => updateRow(i, { mrp: parseFloat(e.target.value) || 0 })} /></td>
                   <td style={{ padding: "2px 4px" }}><input type="number" min="0" step="0.01" style={cellStyle} value={r.ptr || ""} onChange={e => updateRow(i, { ptr: parseFloat(e.target.value) || 0 })} /></td>
-                  <td style={{ padding: "2px 4px" }}><input type="number" min="0" style={{ ...cellStyle, width: "70px" }} value={r.qty || ""} onChange={e => updateRow(i, { qty: parseInt(e.target.value) || 0 })} /></td>
-                  <td style={{ padding: "2px 4px" }}><input type="number" min="0" style={{ ...cellStyle, width: "70px" }} value={r.free || ""} onChange={e => updateRow(i, { free: parseInt(e.target.value) || 0 })} /></td>
-                  <td style={{ padding: "4px 6px", fontFamily: "monospace", textAlign: "center" }}>{r.qty + r.free}</td>
+                  <td style={{ padding: "2px 4px" }}>
+                    <div style={{ display: "flex", gap: 2 }}>
+                      <input type="number" min="0" style={{ ...cellStyle, width: "60px" }} value={r.qty || ""} onChange={e => updateRow(i, { qty: parseInt(e.target.value) || 0 })} />
+                      <UnitSelect value={r.qtyUnit} onChange={u => updateRow(i, { qtyUnit: u })} />
+                    </div>
+                  </td>
+                  <td style={{ padding: "2px 4px" }}>
+                    <div style={{ display: "flex", gap: 2 }}>
+                      <input type="number" min="0" style={{ ...cellStyle, width: "60px" }} value={r.free || ""} onChange={e => updateRow(i, { free: parseInt(e.target.value) || 0 })} />
+                      <UnitSelect value={r.freeUnit} onChange={u => updateRow(i, { freeUnit: u })} />
+                    </div>
+                    {(r.qtyUnit === "strip" || r.freeUnit === "strip") && (
+                      <input type="number" min="1" step="1" placeholder="Pcs/Strip" title="Pieces per Strip" style={{ ...cellStyle, width: "100%", marginTop: 2 }} value={r.pps || ""} onChange={e => updateRow(i, { pps: parseInt(e.target.value) || 0 })} />
+                    )}
+                  </td>
+                  <td style={{ padding: "4px 6px", fontFamily: "monospace", textAlign: "center" }}>
+                    {rowCalc(r).totalStock}
+                    {(r.qtyUnit === "strip" || r.freeUnit === "strip") && rowCalc(r).totalStock > 0 && (
+                      <div style={{ fontSize: "10px", color: "hsl(var(--muted-foreground))", whiteSpace: "nowrap" }} title="Per piece, excl. GST">
+                        MRP {rowCalc(r).mrpPiece.toFixed(6)}<br />PTR {rowCalc(r).ptrPiece.toFixed(6)}<br />Cost {rowCalc(r).costPerPiece.toFixed(6)}
+                      </div>
+                    )}
+                  </td>
                   <td style={{ padding: "4px 6px", fontFamily: "monospace", textAlign: "right" }}>{rowTaxable(r).toFixed(2)}</td>
                   <td style={{ padding: "2px 4px" }}><input type="number" min="0" max="100" style={{ ...cellStyle, width: "65px" }} value={r.disPct || ""} onChange={e => updateRow(i, { disPct: parseFloat(e.target.value) || 0 })} /></td>
                   <td style={{ padding: "2px 4px" }}><input type="number" min="0" max="100" style={{ ...cellStyle, width: "65px" }} value={r.gstPct || ""} onChange={e => updateRow(i, { gstPct: parseFloat(e.target.value) || 0 })} /></td>
@@ -268,3 +346,16 @@ const cellStyle: React.CSSProperties = {
   color: "hsl(var(--foreground))",
   outline: "none",
 };
+
+function UnitSelect({ value, onChange }: { value?: QtyUnit; onChange: (u: QtyUnit) => void }) {
+  return (
+    <select
+      value={value || "piece"}
+      onChange={e => onChange(e.target.value as QtyUnit)}
+      style={{ ...cellStyle, width: "62px", padding: "0 2px", fontSize: "12px" }}
+    >
+      <option value="piece">Piece</option>
+      <option value="strip">Strip</option>
+    </select>
+  );
+}
